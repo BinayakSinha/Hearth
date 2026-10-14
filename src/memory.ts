@@ -1,24 +1,42 @@
-// Hearth core logic. The MCP tools (server.ts) and the parent dashboard API both call into here.
+// Hearth core logic. The MCP tools (server.ts) and the dashboard API both call into here.
+//
+// Who can see what (enforced here, for voice and dashboard alike):
+//   • "Household" view (nobody has unlocked): shared grown-up entries only — no children's journals.
+//   • A person sees everything of their own, including private entries.
+//   • Parents also see their children's journals and progress.
+//   • Private entries: only the author. Sensitive entries (possible safety disclosures): only the
+//     author — not even parents, because the person told could be the person causing harm.
+//   • Family conversations: the people who were there, plus parents.
 import {
-  allMembers, allSharedEntries, allThreads, db, entriesFor, findMember, insertEntry, insertMember,
-  insertThread, markThreadUsed, supersedePending, memberById, nowIso, pendingThreadsFor, recordVocabulary,
-  sharedEntriesSince, vocabularySize, type Entry, type Member, type Role, type Thread,
+  allEntriesNewestFirst, allMembers, allThreads, bumpVersion, clearVocabulary, conversationById,
+  conversationTurns, dataVersion, deleteEntryRow, entriesFor, entriesOlderThan, entryById, findMember,
+  getSetting, insertConversation, insertEntry, insertMember, insertThread, markThreadUsed, memberById,
+  nowIso, pendingThreadsFor, recordVocabulary, setSetting, sharedEntriesSince, supersedePending,
+  threadById, threadsSince, updateEntryNewWords, vocabularySize,
+  type Entry, type Member, type Role, type Thread,
 } from "./db.js";
-import { analyze, firstSentence, guessMood, notableWords, properNouns, round, tokenize, topKeywords } from "./language.js";
+import { hashPin, hasPin, pinMatches } from "./auth.js";
+import { analyze, bigWords, firstSentence, guessMood, properNouns, round, tokenize, topKeywords } from "./language.js";
 import { completeJson, llmEnabled } from "./llm.js";
-import { MEMOIR, MEMOIR_FLAT, STYLE_GUIDE, bankFor } from "./prompts.js";
+import { MEMOIR, MEMOIR_FLAT, STYLE_GUIDE, TABLE_QUESTIONS, bankFor } from "./prompts.js";
+import { careTarget, checkSafety, looksLikeSummary, okForChild, safetyReply } from "./safety.js";
 
-const TZ = process.env.HEARTH_TZ ?? "Asia/Kolkata";
+const TZ = process.env.HEARTH_TZ ?? "Europe/London";
 const DAY = 86_400_000;
+const PAGE = 12;
+const QUICK_DELETE_MINUTES = 15; // "Alexa, delete what I just said" needs no PIN inside this window
 
 export class HearthError extends Error {}
+
+/** null = the household view: what anyone in the home may see without unlocking. */
+export type Viewer = Member | null;
 
 const parse = <T>(s: string): T => JSON.parse(s) as T;
 const ref = (m: Member) => m.relation || m.name;
 export const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: TZ });
+  new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: TZ });
 
-function requireMember(name: string): Member {
+export function requireMember(name: string): Member {
   const m = findMember(name);
   if (!m) {
     const names = allMembers().map((x) => x.name).join(", ") || "none yet";
@@ -27,21 +45,67 @@ function requireMember(name: string): Member {
   return m;
 }
 
-/** Child journals are visible to that child and to parents only. Private entries only to their author. */
-function canSee(viewer: Member, entry: Entry): boolean {
-  if (entry.member_id === viewer.id) return true;
-  if (entry.private) return false;
+/**
+ * Resolves who is asking over voice. Without voice ID, a person with a PIN is only "verified"
+ * once they say it. Unverified people get the household view for anything parent-level.
+ */
+export function voiceViewer(name: string, pin?: string | null): { member: Member; verified: boolean } {
+  const member = requireMember(name);
+  if (!hasPin(member)) return { member, verified: true };
+  if (pin === undefined || pin === null || pin === "") return { member, verified: false };
+  if (!pinMatches(member, pin)) throw new HearthError(`That PIN didn't match ${member.name}'s. Try again.`);
+  return { member, verified: true };
+}
+
+function participantsOf(conversationId: number): number[] {
+  const c = conversationById(conversationId);
+  return c ? parse<number[]>(c.participants) : [];
+}
+
+export function canSee(viewer: Viewer, entry: Entry): boolean {
+  if (viewer && entry.member_id === viewer.id) return true;
+  if (entry.sensitive || entry.private) return false;
   const author = memberById(entry.member_id);
-  if (author.role === "child") return viewer.is_parent === 1;
+  if (entry.conversation_id) {
+    const people = participantsOf(entry.conversation_id);
+    if (viewer && (people.includes(viewer.id) || viewer.is_parent)) return true;
+    if (!viewer) return !people.some((id) => memberById(id)?.role === "child");
+    return author.role !== "child" && !people.some((id) => memberById(id)?.role === "child");
+  }
+  if (author.role === "child") return !!viewer?.is_parent;
   return true;
+}
+
+function canDelete(viewer: Member, entry: Entry): boolean {
+  if (entry.member_id === viewer.id) return true;
+  const author = memberById(entry.member_id);
+  return author.role === "child" && !!viewer.is_parent && !entry.sensitive;
 }
 
 // ───────────────────────────── members ─────────────────────────────
 
 export function registerMember(input: {
-  name: string; role: Role; age?: number | null; relation?: string | null; is_parent?: boolean; photo?: string | null;
+  name: string; role: Role; age?: number | null; relation?: string | null; is_parent?: boolean;
+  photo?: string | null; pin?: string | null;
+  /** Children only: the parent adding the profile, who confirms consent. */
+  added_by?: string | null; parent_consent?: boolean;
 }): Member {
   if (findMember(input.name)) throw new HearthError(`${input.name} is already part of the family.`);
+  let consentBy: number | null = null;
+  if (input.role === "child") {
+    const parent = input.added_by ? findMember(input.added_by) : undefined;
+    if (!parent || !parent.is_parent) {
+      throw new HearthError("A parent needs to add a child's profile. Tell me which parent is setting it up.");
+    }
+    if (!input.parent_consent) {
+      throw new HearthError(
+        `Before I set up ${input.name}'s journal, ${parent.name}: Hearth will save what ${input.name} says, track ` +
+        `their speaking practice, and only parents can read it. You can delete anything at any time. Do you agree?`,
+      );
+    }
+    consentBy = parent.id;
+  }
+  if (input.pin && !/^\d{4,6}$/.test(input.pin)) throw new HearthError("A PIN is 4 to 6 digits.");
   return insertMember({
     name: input.name.trim(),
     role: input.role,
@@ -49,6 +113,9 @@ export function registerMember(input: {
     relation: input.relation?.trim() || null,
     is_parent: input.is_parent ? 1 : 0,
     photo: input.photo ?? null,
+    pin_hash: input.pin && input.role !== "child" ? hashPin(input.pin) : null,
+    consent_by: consentBy,
+    consent_at: consentBy ? nowIso() : null,
   });
 }
 
@@ -57,6 +124,7 @@ export function familyOverview() {
     const entries = entriesFor(m.id);
     return {
       name: m.name, role: m.role, age: m.age, called: m.relation, is_parent: !!m.is_parent, photo: m.photo,
+      has_pin: hasPin(m),
       entries: entries.length,
       week_entries: entries.filter((e) => Date.parse(e.created_at) >= Date.now() - 7 * DAY).length,
       waiting: pendingThreadsFor(m.id).length,
@@ -75,6 +143,22 @@ function streak(entries: Entry[]): number {
     else if (n > 0 || key !== new Date().toLocaleDateString("en-CA", { timeZone: TZ })) break;
   }
   return n;
+}
+
+export const careNudgesOn = () => (getSetting("care_nudges") ?? process.env.HEARTH_CARE_NUDGES ?? "off") === "on";
+
+export function setCareNudges(on: boolean, by: string, pin?: string | null) {
+  const { member, verified } = voiceViewer(by, pin);
+  if (!member.is_parent) throw new HearthError("Only a parent can change care nudges.");
+  if (!verified) throw new HearthError(`Please say your PIN, ${member.name}, to change family settings.`);
+  setSetting("care_nudges", on ? "on" : "off");
+  bumpVersion();
+  return {
+    care_nudges: on ? "on" : "off",
+    say: on
+      ? "Care nudges are on. If a child mentions someone seems tired or unwell, I'll gently suggest another grown-up checks in. I never say who mentioned it."
+      : "Care nudges are off.",
+  };
 }
 
 // ───────────────────────────── sessions & prompts ─────────────────────────────
@@ -106,7 +190,7 @@ export function startSession(name: string) {
 export function nextPrompt(name: string) {
   const m = requireMember(name);
   const pending = pendingThreadsFor(m.id);
-  // Story bridges beat care nudges for kids; care nudges go first for adults (they're time-sensitive).
+  // Story bridges first for kids; care nudges first for adults (they're time-sensitive).
   const pick =
     pending.find((t) => (m.role === "adult" ? t.kind === "care_nudge" : t.kind === "story_bridge")) ?? pending[0];
   if (pick) {
@@ -151,7 +235,6 @@ interface Extraction {
   care?: { about: string; nudge: string } | null;
 }
 
-const NEGATIVE = ["tired", "sad", "angry", "sick", "crying", "cried", "upset", "worried", "headache", "unwell", "grumpy", "stressed", "shouted"];
 const KID_FOLLOWUPS = [
   "What happened next?",
   "Who else was there?",
@@ -161,26 +244,13 @@ const KID_FOLLOWUPS = [
   "If you did it again, what would you do differently?",
 ];
 
-/** Who should hear about this entry, and as what kind of thread. */
-function bridgeTargets(author: Member, isPrivate: boolean, wordCount: number): Member[] {
-  if (isPrivate || wordCount < 12) return [];
+/** Who should hear about this entry as a story bridge. */
+function bridgeTargets(author: Member, shareable: boolean, wordCount: number): Member[] {
+  if (!shareable || wordCount < 12) return [];
   const others = allMembers().filter((x) => x.id !== author.id);
   if (author.role === "elder") return others.filter((x) => x.role === "child");
   if (author.role === "child") return others.filter((x) => x.role === "elder");
   return [];
-}
-
-/** Care nudges: a child mentions a family member alongside a worry word. Never quotes the child. */
-function detectCare(author: Member, text: string): Member | null {
-  if (author.role !== "child") return null;
-  const words = new Set(tokenize(text));
-  if (!NEGATIVE.some((w) => words.has(w))) return null;
-  return (
-    allMembers().find(
-      (x) => x.id !== author.id && x.role !== "child" &&
-        [x.name, x.relation ?? ""].some((n) => n && words.has(n.toLowerCase())),
-    ) ?? null
-  );
 }
 
 async function extract(author: Member, text: string, prompt: string | null, targets: Member[], careAbout: Member | null): Promise<Extraction> {
@@ -195,19 +265,18 @@ Given one journal entry, return JSON with:
 - people: names or relations mentioned.
 ${author.role === "child" ? `- recast: the child is ${author.age ?? "young"}. Repeat their main idea back as ONE fuller, richer sentence (the "recasting" technique speech educators use): keep their meaning, add one or two descriptive words, never say they were wrong. Speak to them as "you".
 - follow_up: one short, open question about a specific detail they mentioned.` : ""}
-${targets.length ? `- bridges: for each of [${targets.map((t) => `${t.name} (${t.role}, age ${t.age ?? "?"})`).join(", ")}], write a prompt Alexa will ask THEM later, that shares a small, kind piece of this story (refer to the author as "${ref(author)}") and invites their own related memory. Age-appropriate, one or two sentences. Format: [{"to": name, "prompt": text}].` : ""}
-${careAbout ? `- care: the child mentioned ${careAbout.name} may not be feeling great. Write {"about": "${careAbout.name}", "nudge": text} — a gentle suggestion for OTHER adults to check in on ${careAbout.name}. NEVER reveal the child said anything or quote them.` : ""}`,
+${targets.length ? `- bridges: for each of [${targets.map((t) => `${t.name} (${t.role}, age ${t.age ?? "?"})`).join(", ")}], write a prompt Alexa will ask THEM later, that shares a small, kind piece of this story (refer to the author as "${ref(author)}") and invites their own related memory. Age-appropriate, gentle, one or two sentences. Format: [{"to": name, "prompt": text}].` : ""}
+${careAbout ? `- care: the child mentioned ${careAbout.name} may be tired or unwell. Write {"about": "${careAbout.name}", "nudge": text} — a gentle suggestion for OTHER adults to check in on ${careAbout.name}. NEVER reveal a child said anything or quote them.` : ""}`,
         `${prompt ? `Question asked: ${prompt}\n` : ""}Entry by ${author.name}: ${text}`,
         700,
       )
     : null;
 
   const metrics = analyze(text);
-  const fallbackTopics = topKeywords(text);
   const out: Extraction = {
     summary: ai?.summary || `${author.name}: ${firstSentence(text)}`,
     mood: ai?.mood ?? guessMood(text),
-    topics: ai?.topics?.length ? ai.topics : fallbackTopics,
+    topics: ai?.topics?.length ? ai.topics : topKeywords(text),
     people: ai?.people ?? [],
     recast: ai?.recast,
     follow_up: ai?.follow_up,
@@ -220,7 +289,6 @@ ${careAbout ? `- care: the child mentioned ${careAbout.name} may not be feeling 
       : `Wow, so ${firstSentence(text).replace(/^i /i, "you ").replace(/\bI\b/g, "you").replace(/\bmy\b/gi, "your")}`;
     out.follow_up ??= KID_FOLLOWUPS[text.length % KID_FOLLOWUPS.length];
   }
-  // Fill any missing bridges with templates.
   const have = new Set((out.bridges ?? []).map((b) => b.to.toLowerCase()));
   out.bridges = [...(out.bridges ?? [])];
   for (const t of targets) {
@@ -242,21 +310,43 @@ ${careAbout ? `- care: the child mentioned ${careAbout.name} may not be feeling 
   return out;
 }
 
+function childBigWords(m: Member, fresh: string[], prompt: string | null, text: string): string[] {
+  return m.role === "child" ? bigWords(fresh, m.age, prompt, properNouns(text)) : [];
+}
+
+function requireConsent(m: Member) {
+  if (m.role === "child" && !m.consent_at) {
+    throw new HearthError(`A parent needs to confirm ${m.name}'s profile before I can save ${m.name}'s journal.`);
+  }
+}
+
 export async function saveEntry(input: {
   name: string; transcript: string; prompt?: string | null; thread_id?: number | null; private?: boolean; at?: string;
 }) {
   const m = requireMember(input.name);
+  requireConsent(m);
   const text = input.transcript.trim();
   if (!text) throw new HearthError("The journal entry was empty — ask the question again.");
+  if (looksLikeSummary(m, text)) {
+    throw new HearthError(
+      `That looks like a summary of what ${m.name} said. Hearth needs ${m.name}'s exact words, in first person, ` +
+      `exactly as spoken — call save_journal_entry again with the verbatim transcript.`,
+    );
+  }
   const at = input.at ?? nowIso();
-  const isPrivate = !!input.private || /\b(keep (this|it) private|just between us|don't tell anyone)\b/i.test(text);
+  const family = allMembers();
+  const safety = checkSafety(text, family);
+  const sensitive = safety.kind === "household_harm" || safety.kind === "self_harm";
+  const isPrivate = sensitive || !!input.private || /\b(keep (this|it) private|just between us|don'?t tell anyone)\b/i.test(text);
 
   const metrics = analyze(text);
-  const names = properNouns(text);
-  const fresh = recordVocabulary(m.id, tokenize(text), at).filter((w) => !names.has(w));
-  const targets = bridgeTargets(m, isPrivate, metrics.word_count);
-  const careAbout = detectCare(m, text);
-  const x = await extract(m, text, input.prompt ?? null, targets, careAbout);
+  const fresh = recordVocabulary(m.id, tokenize(text), at);
+  const targets = bridgeTargets(m, !isPrivate && safety.kind === "none", metrics.word_count);
+  const careAbout = !isPrivate && safety.kind === "none" && careNudgesOn() ? careTarget(m, text, family) : null;
+  // Sensitive entries never go to the AI model or anywhere else.
+  const x: Extraction = sensitive
+    ? { summary: `${m.name}: private entry`, mood: null, topics: [], people: [] }
+    : await extract(m, text, input.prompt ?? null, targets, careAbout);
 
   const chapter = m.role === "elder"
     ? (MEMOIR_FLAT.find((q) => q.question === input.prompt)?.chapter ??
@@ -266,46 +356,58 @@ export async function saveEntry(input: {
   const entry = insertEntry({
     member_id: m.id, created_at: at, prompt: input.prompt ?? null, transcript: text,
     summary: x.summary, mood: x.mood, topics: JSON.stringify(x.topics), people: JSON.stringify(x.people),
-    private: isPrivate ? 1 : 0, word_count: metrics.word_count, mlu: metrics.mlu,
-    unique_words: metrics.unique_words, new_words: JSON.stringify(fresh), chapter,
+    private: isPrivate ? 1 : 0, sensitive: sensitive ? 1 : 0,
+    word_count: metrics.word_count, mlu: metrics.mlu, unique_words: metrics.unique_words,
+    new_words: JSON.stringify(sensitive ? [] : childBigWords(m, fresh, input.prompt ?? null, text)),
+    chapter, conversation_id: null, turn: null,
   });
 
-  if (input.thread_id) markThreadUsed(input.thread_id);
+  if (input.thread_id && threadById(input.thread_id)?.to_member_id === m.id) markThreadUsed(input.thread_id);
 
-  // Create threads for other members.
   let threadsCreated = 0;
+  let held = 0;
   for (const b of x.bridges ?? []) {
     const to = findMember(b.to);
     if (!to || to.id === m.id) continue;
-    // Keep one waiting story per (from → to) pair: a newer story replaces an unheard older one.
-    supersedePending(m.id, to.id, "story_bridge");
+    if (to.role === "child" && !(await okForChild(b.prompt))) { held++; continue; }
+    supersedePending(m.id, to.id, "story_bridge"); // one waiting story per pair; newer replaces older
     insertThread({ kind: "story_bridge", source_entry_id: entry.id, from_member_id: m.id, to_member_id: to.id, prompt: b.prompt, created_at: at });
     threadsCreated++;
   }
   if (x.care) {
     const about = findMember(x.care.about);
-    for (const adult of allMembers().filter((a) => a.role !== "child" && a.id !== about?.id && a.is_parent)) {
-      const already = pendingThreadsFor(adult.id).some((t) => t.kind === "care_nudge");
-      if (already) continue;
+    for (const adult of family.filter((a) => a.role !== "child" && a.id !== about?.id && a.is_parent)) {
+      if (pendingThreadsFor(adult.id).some((t) => t.kind === "care_nudge")) continue;
       insertThread({ kind: "care_nudge", source_entry_id: entry.id, from_member_id: m.id, to_member_id: adult.id, prompt: x.care.nudge, created_at: at });
       threadsCreated++;
     }
   }
 
-  // Role-specific feedback for Alexa+ to say.
   const base = {
     saved: true, entry_id: entry.id, private: isPrivate, summary: x.summary, mood: x.mood,
     family_threads_created: threadsCreated,
+    ...(held ? { held_back_for_child: held } : {}),
+    can_delete: `If ${m.name} changes their mind, call delete_journal_entry within ${QUICK_DELETE_MINUTES} minutes — no PIN needed.`,
   };
+  if (safety.kind !== "none") {
+    return {
+      ...base,
+      safety: safety.kind,
+      instructions: sensitive
+        ? "Say the `say` text gently and stop the journal session. Do not repeat, summarise or mention this entry to anyone else in the household."
+        : "Say the `say` text gently.",
+      say: safetyReply(safety.kind, m),
+    };
+  }
   if (m.role === "child") {
-    const notable = notableWords(fresh);
+    const words = parse<string[]>(entry.new_words);
     return {
       ...base,
       recast: x.recast,
       follow_up: x.follow_up,
-      new_words_today: notable,
+      big_words_today: words,
       words_used: metrics.word_count,
-      say: `${x.recast} ${x.follow_up}${notable.length ? ` (Celebrate: "${notable[0]}" is a new word for ${m.name}!)` : ""}`,
+      say: `${x.recast} ${x.follow_up}${words.length ? ` (Celebrate: "${words[0]}" is a new big word for ${m.name}!)` : ""}`,
     };
   }
   if (m.role === "adult") {
@@ -320,7 +422,7 @@ export async function saveEntry(input: {
 }
 
 function adultPattern(m: Member): string | null {
-  const week = entriesFor(m.id, new Date(Date.now() - 7 * DAY).toISOString());
+  const week = entriesFor(m.id, new Date(Date.now() - 7 * DAY).toISOString()).filter((e) => !e.sensitive);
   const moods = new Map<string, number>();
   for (const e of week) if (e.mood && ["tired", "worried", "sad"].includes(e.mood)) moods.set(e.mood, (moods.get(e.mood) ?? 0) + 1);
   for (const [mood, n] of moods) if (n >= 3) return `you've mentioned feeling ${mood} on ${n} days this week. Want me to remind you to take a proper break tomorrow?`;
@@ -331,31 +433,100 @@ function adultPattern(m: Member): string | null {
 }
 
 function memoirProgress(m: Member) {
-  const entries = entriesFor(m.id);
+  const entries = entriesFor(m.id).filter((e) => !e.sensitive);
   const chapters = MEMOIR.map((c) => ({
     chapter: c.chapter,
     stories: entries.filter((e) => e.chapter === c.chapter).length,
     questions: c.questions.length as number | null,
   }));
-  for (const extra of ["Talks with the grandchildren", "Stories"]) {
+  for (const extra of ["Talks with the grandchildren", "At the family table", "Stories"]) {
     const n = entries.filter((e) => e.chapter === extra).length;
     if (n) chapters.push({ chapter: extra, stories: n, questions: null });
   }
   return chapters;
 }
 
+// ───────────────────────────── deleting & retention ─────────────────────────────
+
+/** Re-derives a member's vocabulary and "big words" after entries are removed. */
+function rebuildVocabulary(m: Member) {
+  clearVocabulary(m.id);
+  for (const e of entriesFor(m.id)) {
+    const fresh = recordVocabulary(m.id, tokenize(e.transcript), e.created_at);
+    updateEntryNewWords(e.id, e.sensitive ? [] : childBigWords(m, fresh, e.prompt, e.transcript));
+  }
+}
+
+function removeEntry(entry: Entry) {
+  deleteEntryRow(entry.id);
+  rebuildVocabulary(memberById(entry.member_id));
+}
+
+/** Delete from the dashboard: the viewer is already PIN-verified by their session. */
+export function deleteEntryAs(viewer: Member, entryId: number) {
+  const e = entryById(entryId);
+  if (!e || !canSee(viewer, e)) throw new HearthError("That entry doesn't exist.");
+  if (!canDelete(viewer, e)) throw new HearthError("Only the person who said it, or a child's parent, can delete an entry.");
+  removeEntry(e);
+  return { deleted: true, entry_id: entryId };
+}
+
+/** "Alexa, delete what I just said" — or a parent deleting a child's entry by voice. */
+export function deleteByVoice(input: { name: string; entry_id?: number; for_member?: string; pin?: string | null }) {
+  const { member, verified } = voiceViewer(input.name, input.pin);
+  const owner = input.for_member ? requireMember(input.for_member) : member;
+  const e = input.entry_id ? entryById(input.entry_id) : entriesFor(owner.id).filter((x) => !x.conversation_id || x.member_id === owner.id).at(-1);
+  if (!e || e.member_id !== owner.id) throw new HearthError(`I couldn't find that entry in ${owner.name}'s journal.`);
+  const own = owner.id === member.id;
+  const recent = Date.now() - Date.parse(e.created_at) < QUICK_DELETE_MINUTES * 60_000;
+  if (own && !recent && !verified) {
+    throw new HearthError(`That entry is older than ${QUICK_DELETE_MINUTES} minutes. Please say your PIN to delete it, ${member.name}.`);
+  }
+  if (!own) {
+    if (!(owner.role === "child" && member.is_parent)) throw new HearthError(`Only ${owner.name} can delete ${owner.name}'s entries.`);
+    if (!verified) throw new HearthError(`Please say your PIN to delete ${owner.name}'s entry, ${member.name}.`);
+  }
+  removeEntry(e);
+  return { deleted: true, entry_id: e.id, say: own ? "Done — I've deleted that. It's gone for good." : `Done — I've deleted that from ${owner.name}'s journal.` };
+}
+
+/**
+ * How long Hearth keeps things. Grandparents' memoirs are kept until someone deletes them —
+ * that's the point of a memoir. Day-to-day logs and kids' practice are kept for a year by default.
+ */
+export function retentionPolicy() {
+  const days = (v: string | undefined, d: number) => (v === undefined ? d : Number(v));
+  return {
+    child: days(process.env.HEARTH_KEEP_DAYS_CHILD, 365),
+    adult: days(process.env.HEARTH_KEEP_DAYS_ADULT, 365),
+    elder: days(process.env.HEARTH_KEEP_DAYS_ELDER, 0), // 0 = keep until deleted
+  };
+}
+
+export function purgeExpired(): number {
+  const policy = retentionPolicy();
+  const touched = new Set<number>();
+  let n = 0;
+  for (const role of ["child", "adult", "elder"] as Role[]) {
+    const keep = policy[role];
+    if (!keep) continue;
+    for (const e of entriesOlderThan([role], new Date(Date.now() - keep * DAY).toISOString())) {
+      deleteEntryRow(e.id);
+      touched.add(e.member_id);
+      n++;
+    }
+  }
+  for (const id of touched) rebuildVocabulary(memberById(id));
+  return n;
+}
+
 // ───────────────────────────── kids' language progress ─────────────────────────────
 
-export function languageProgress(childName: string, requestedBy: string, days = 28) {
-  const child = requireMember(childName);
-  const viewer = requireMember(requestedBy);
-  if (child.role !== "child") throw new HearthError(`${child.name} isn't set up as a child, so there's no speaking-practice report.`);
-  if (!viewer.is_parent && viewer.id !== child.id) throw new HearthError(`Only a parent can see ${child.name}'s speaking progress.`);
-
+export function languageProgress(child: Member, days = 28) {
   const now = Date.now();
   const since = new Date(now - days * DAY);
-  const entries = entriesFor(child.id, since.toISOString());
-  const weeks: { week: string; entries: number; avg_words: number; avg_mlu: number; vocabulary: number; new_words: string[] }[] = [];
+  const entries = entriesFor(child.id, since.toISOString()).filter((e) => !e.sensitive);
+  const weeks: { week: string; entries: number; avg_words: number; big_words: string[] }[] = [];
   for (let start = since.getTime(); start < now - DAY; start += 7 * DAY) {
     const end = Math.min(start + 7 * DAY, now);
     const wk = entries.filter((e) => { const t = Date.parse(e.created_at); return t >= start && t < end; });
@@ -363,43 +534,45 @@ export function languageProgress(childName: string, requestedBy: string, days = 
       week: fmtDate(new Date(start).toISOString()),
       entries: wk.length,
       avg_words: wk.length ? round(wk.reduce((s, e) => s + e.word_count, 0) / wk.length) : 0,
-      avg_mlu: wk.length ? round(wk.reduce((s, e) => s + e.mlu, 0) / wk.length) : 0,
-      vocabulary: vocabularySize(child.id, new Date(end).toISOString()),
-      new_words: notableWords(wk.flatMap((e) => parse<string[]>(e.new_words))).slice(0, 12),
+      big_words: wk.flatMap((e) => parse<string[]>(e.new_words)),
     });
   }
   const active = weeks.filter((w) => w.entries > 0);
   const first = active[0];
   const last = active.at(-1);
-  const change = (a?: number, b?: number) => (a && b ? Math.round(((b - a) / a) * 100) : 0);
-  const mluChange = change(first?.avg_mlu, last?.avg_mlu);
-  const wordsChange = change(first?.avg_words, last?.avg_words);
-  const recentNew = notableWords(entries.slice(-5).flatMap((e) => parse<string[]>(e.new_words))).slice(0, 8);
+  const wordsChange = first && last && first.avg_words ? Math.round(((last.avg_words - first.avg_words) / first.avg_words) * 100) : 0;
+  const allBig = entriesFor(child.id).filter((e) => !e.sensitive).flatMap((e) => parse<string[]>(e.new_words));
+  const recentBig = entries.slice(-6).flatMap((e) => parse<string[]>(e.new_words)).slice(-8);
 
   return {
     child: child.name, age: child.age, period_days: days,
     practice_sessions: entries.length,
     streak_days: streak(entriesFor(child.id)),
-    vocabulary_size: vocabularySize(child.id),
-    sentence_length_change_pct: mluChange,
     words_per_answer_change_pct: wordsChange,
-    recent_new_words: recentNew,
+    words_per_answer_first_week: first?.avg_words ?? 0,
+    words_per_answer_latest_week: last?.avg_words ?? 0,
+    big_words_total: allBig.length,
+    recent_big_words: recentBig,
+    vocabulary_size: vocabularySize(child.id),
     weekly: weeks,
+    method:
+      "Words per answer is the main measure. \"Big words\" are words used for the first time that are uncommon in everyday " +
+      "speech for the child's age (SUBTLEX-US frequency ranks), skipping names and words echoed from the question.",
     note: "Practice and engagement indicators, not a clinical assessment. Talk to a speech-language professional if you have concerns.",
     say:
       `${child.name} practised ${entries.length} times in the last ${days} days. ` +
-      (first && last && first !== last
-        ? `Compared with the first week, their sentences are ${describeChange(mluChange)} and their answers are ${describeChange(wordsChange)}. `
-        : "") +
-      (recentNew.length ? `New words lately: ${recentNew.slice(0, 4).join(", ")}.` : ""),
+      (first && last && first !== last ? `Their answers have gone from about ${first.avg_words} words to about ${last.avg_words}. ` : "") +
+      (recentBig.length ? `New big words lately: ${recentBig.slice(-4).join(", ")}.` : ""),
   };
 }
 
-function describeChange(pct: number): string {
-  if (pct >= 100) return `about ${round(1 + pct / 100)} times as long`;
-  if (pct > 0) return `${pct}% longer`;
-  if (pct < 0) return `${-pct}% shorter`;
-  return "about the same length";
+export function progressByVoice(childName: string, requestedBy: string, pin?: string | null, days = 28) {
+  const child = requireMember(childName);
+  if (child.role !== "child") throw new HearthError(`${child.name} isn't set up as a child, so there's no speaking-practice report.`);
+  const { member, verified } = voiceViewer(requestedBy, pin);
+  if (!member.is_parent && member.id !== child.id) throw new HearthError(`Only a parent can hear ${child.name}'s speaking progress.`);
+  if (!verified) throw new HearthError(`Please say your PIN first, ${member.name}, and I'll tell you how ${child.name} is doing.`);
+  return languageProgress(child, days);
 }
 
 // ───────────────────────────── threads, recall, radio ─────────────────────────────
@@ -408,31 +581,30 @@ export function listThreads(forName?: string) {
   const rows: Thread[] = forName ? pendingThreadsFor(requireMember(forName).id) : allThreads(40);
   return rows.map((t) => ({
     id: t.id, kind: t.kind, status: t.status,
-    // Care nudges never reveal who triggered them.
-    from: t.kind === "care_nudge" ? "Hearth" : memberById(t.from_member_id).name,
+    from: t.kind === "care_nudge" ? "Hearth" : memberById(t.from_member_id).name, // nudges never show their source
     to: memberById(t.to_member_id).name,
     prompt: t.prompt,
     created: fmtDate(t.created_at),
   }));
 }
 
-export function recall(question: string, askedBy: string, limit = 5) {
-  const viewer = requireMember(askedBy);
+export function recall(question: string, askedBy: string, pin?: string | null, limit = 5) {
+  const { member, verified } = voiceViewer(askedBy, pin);
+  const viewer: Viewer = verified ? member : null;
   const q = new Set(tokenize(question).filter((w) => w.length > 2));
   const members = new Map(allMembers().map((m) => [m.id, m]));
-  const visible = (db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all() as unknown as Entry[]).filter((e) => canSee(viewer, e));
-  const scored = visible
+  const scored = allEntriesNewestFirst()
+    .filter((e) => canSee(viewer, e))
     .map((e) => {
       const author = members.get(e.member_id)!;
       const hay = tokenize(`${e.transcript} ${e.summary} ${e.topics} ${author.name} ${author.relation ?? ""}`);
-      const score = hay.filter((w) => q.has(w)).length;
-      return { e, author, score };
+      return { e, author, score: hay.filter((w) => q.has(w)).length };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score || b.e.created_at.localeCompare(a.e.created_at))
     .slice(0, limit);
   return {
-    question, asked_by: viewer.name,
+    question, asked_by: member.name, searched_as: verified ? member.name : "household (say your PIN to include your private entries)",
     matches: scored.map(({ e, author }) => ({ date: fmtDate(e.created_at), who: author.name, summary: e.summary, said: e.transcript })),
     instructions: scored.length
       ? "Answer the question in one or two spoken sentences using only these matches. Mention who said it and when."
@@ -440,19 +612,19 @@ export function recall(question: string, askedBy: string, limit = 5) {
   };
 }
 
-export async function familyRadio(requestedBy: string, days = 7) {
-  requireMember(requestedBy);
+export async function familyRadio(days = 7) {
   const since = new Date(Date.now() - days * DAY).toISOString();
-  const entries = sharedEntriesSince(since);
+  const entries = sharedEntriesSince(since).filter((e) => !e.conversation_id);
+  const conversations = [...new Set(sharedEntriesSince(since).map((e) => e.conversation_id).filter((c): c is number => !!c))]
+    .map((id) => conversationById(id)!).filter(Boolean);
   const members = allMembers();
   const byMember = members.map((m) => ({ m, es: entries.filter((e) => e.member_id === m.id) })).filter((x) => x.es.length);
-  if (!byMember.length) return { script: "It's been a quiet week at home — no stories yet. Tell me about your day and I'll have an episode ready next Sunday!", segments: [] };
+  if (!byMember.length) return { script: "It's been a quiet week at home — no stories yet. Tell me about your day and I'll have an episode ready next Sunday!", segments: [], period_days: days };
 
   const kidWords = members
     .filter((m) => m.role === "child")
-    .map((m) => ({ name: m.name, words: notableWords(entries.filter((e) => e.member_id === m.id).flatMap((e) => parse<string[]>(e.new_words))).sort((a, b) => b.length - a.length) }))
+    .map((m) => ({ name: m.name, words: entries.filter((e) => e.member_id === m.id).flatMap((e) => parse<string[]>(e.new_words)).sort((a, b) => b.length - a.length) }))
     .filter((k) => k.words.length);
-  // Prefer upbeat, detailed moments for highlights.
   const warmth = (e: Entry) => e.word_count + (["happy", "calm", "nostalgic"].includes(e.mood ?? "") ? 40 : 0) - (["tired", "worried", "sad"].includes(e.mood ?? "") ? 30 : 0);
   const pick = (es: Entry[]) => [...es].sort((a, b) => warmth(b) - warmth(a))[0];
 
@@ -462,9 +634,9 @@ export async function familyRadio(requestedBy: string, days = 7) {
   const ai = llmEnabled()
     ? await completeJson<{ script: string }>(
         `You write "Family Radio", a warm 2-3 minute weekly audio episode Alexa reads to a family on Sunday evening.
-Sections: a cheerful intro, one highlight per family member (specific and affectionate), "Word of the Week" celebrating a new word a child used, a "From the memory box" moment from the grandparent's memoir, and a short outro that suggests one thing the family could do together this week based on their stories.
+Sections: a cheerful intro, one highlight per family member (specific and affectionate), "Word of the Week" celebrating a new big word a child used, a "From the memory box" moment from the grandparent's memoir, a line about any family-table conversation, and a short outro that suggests one thing the family could do together this week based on their stories.
 Plain spoken English, no stage directions, no emojis, under 380 words. Return {"script": "..."}.`,
-        `This week's journal summaries:\n${material}\nNew words the kids used: ${kidWords.map((k) => `${k.name}: ${k.words.slice(0, 5).join(", ")}`).join("; ") || "none"}`,
+        `This week's journal summaries:\n${material}\nFamily-table conversations: ${conversations.map((c) => c.summary).join(" ") || "none"}\nNew big words the kids used: ${kidWords.map((k) => `${k.name}: ${k.words.slice(0, 5).join(", ")}`).join("; ") || "none"}`,
         900,
       )
     : null;
@@ -480,14 +652,144 @@ Plain spoken English, no stage directions, no emojis, under 380 words. Return {"
         .map(({ m, es }) => `${m.name} checked in ${es.length} time${es.length > 1 ? "s" : ""} this week. A highlight: ${pick(es).summary.replace(/^[^:]+:\s*/, "")}`),
       ...kidWords.map((k) => `Word of the Week goes to ${k.name}, who used "${k.words[0]}" for the very first time. Give them a round of applause!`),
       ...(elder ? [`From the memory box: ${ref(elder.m)} remembered — ${pick(elder.es).summary.replace(/^[^:]+:\s*/, "")}`] : []),
+      ...conversations.slice(-1).map((c) => `And at the family table: ${c.summary}`),
       `That's this week's Family Radio. Ask each other one question about these stories at dinner tonight. Good night!`,
     ].join("\n\n");
 
   return { generated_with: ai ? "bedrock" : "template", period_days: days, segments, word_of_the_week: kidWords, script };
 }
 
+// ───────────────────────────── family conversations ─────────────────────────────
+
+const HOST_GUIDE =
+  "You're hosting a family conversation. Alexa+ voice ID tells you who is speaking — label every turn with that person's name. " +
+  "Ask the opener to the person named, then invite each person in turn. Keep turns short, draw quieter people in (especially children), " +
+  "and ask follow-ups that connect what one person said to another. After about 6–12 turns, or when someone says they're done, " +
+  "call save_family_conversation with every turn: the speaker's name and their exact words. Never summarise turns.";
+
+export function startConversation(names: string[]) {
+  const people = [...new Map(names.map((n) => requireMember(n)).map((m) => [m.id, m])).values()];
+  if (people.length < 2) throw new HearthError("A family conversation needs at least two people. Who's at the table?");
+  for (const p of people) requireConsent(p);
+  const ids = new Set(people.map((p) => p.id));
+  const child = people.find((p) => p.role === "child");
+  const elder = people.find((p) => p.role === "elder");
+
+  // 1. A story waiting between two people at the table is the best opener.
+  const thread = people.flatMap((p) => pendingThreadsFor(p.id)).find((t) => t.kind === "story_bridge" && ids.has(t.from_member_id));
+  let opener: string;
+  let threadId: number | null = null;
+  if (thread) {
+    const to = memberById(thread.to_member_id);
+    const from = memberById(thread.from_member_id);
+    opener = `${to.name}, ${thread.prompt} And ${ref(from)}, you can tell us more about it after!`;
+    threadId = thread.id;
+  } else if (elder) {
+    const covered = new Set(entriesFor(elder.id).map((e) => e.prompt));
+    const q = MEMOIR_FLAT.find((x) => !covered.has(x.question))?.question ?? MEMOIR_FLAT[0].question;
+    opener = `${ref(elder)}, ${q.charAt(0).toLowerCase()}${q.slice(1)}${child ? ` ${child.name}, get a question ready for ${ref(elder)}!` : ""}`;
+  } else {
+    opener = TABLE_QUESTIONS[(entriesFor(people[0].id).length + people.length) % TABLE_QUESTIONS.length];
+  }
+  return {
+    participants: people.map((p) => ({ name: p.name, called: p.relation, role: p.role })),
+    opener,
+    thread_id: threadId,
+    host_guide: HOST_GUIDE,
+    style_notes: people.map((p) => `${p.name}: ${STYLE_GUIDE[p.role]}`),
+    next_step: "Read the opener aloud, host the conversation, then call save_family_conversation with every turn.",
+  };
+}
+
+export async function saveConversation(input: {
+  turns: { speaker: string; text: string }[]; prompt?: string | null; thread_id?: number | null; at?: string;
+}) {
+  const turns = input.turns.map((t) => ({ speaker: requireMember(t.speaker), text: t.text.trim() })).filter((t) => t.text);
+  if (turns.length < 2) throw new HearthError("A conversation needs at least two turns.");
+  const people = [...new Map(turns.map((t) => [t.speaker.id, t.speaker])).values()];
+  if (people.length < 2) throw new HearthError("A conversation needs at least two different people.");
+  for (const p of people) requireConsent(p);
+  const summarised = turns.find((t) => looksLikeSummary(t.speaker, t.text));
+  if (summarised) {
+    throw new HearthError(`${summarised.speaker.name}'s turn looks like a summary. Send each person's exact words, as spoken.`);
+  }
+  const family = allMembers();
+  const start = Date.parse(input.at ?? nowIso());
+  const names = people.map((p) => p.name);
+  const nameList = names.length > 2 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names.join(" and ");
+  const allText = turns.map((t) => t.text).join(" ");
+
+  const ai = llmEnabled()
+    ? await completeJson<{ summary: string }>(
+        "Summarise this family conversation in one warm sentence for a family journal. Name who talked and what about. Return {\"summary\": \"...\"}.",
+        `${input.prompt ? `Opener: ${input.prompt}\n` : ""}${turns.map((t) => `${t.speaker.name}: ${t.text}`).join("\n")}`,
+        200,
+      )
+    : null;
+  const familyWords = new Set(family.flatMap((f) => [f.name, f.relation ?? ""]).flatMap((n) => tokenize(n)));
+  const topic = topKeywords(`${input.prompt ?? ""} ${allText}`, 8).filter((w) => !familyWords.has(w) && w.length >= 5 && !/ly$/.test(w)).slice(0, 2).join(" and ") || "their week";
+  const convo = insertConversation({
+    created_at: new Date(start).toISOString(),
+    prompt: input.prompt ?? null,
+    participants: JSON.stringify(people.map((p) => p.id)),
+    summary: ai?.summary || `${nameList} talked about ${topic}.`,
+  });
+
+  const big: Record<string, string[]> = {};
+  let sensitiveTurns = 0;
+  for (const [i, t] of turns.entries()) {
+    const at = new Date(start + i * 1000).toISOString();
+    const safety = checkSafety(t.text, family);
+    const sensitive = safety.kind === "household_harm" || safety.kind === "self_harm";
+    if (sensitive) sensitiveTurns++;
+    const metrics = analyze(t.text);
+    const fresh = recordVocabulary(t.speaker.id, tokenize(t.text), at);
+    const words = sensitive ? [] : childBigWords(t.speaker, fresh, input.prompt ?? null, t.text);
+    if (words.length) big[t.speaker.name] = [...(big[t.speaker.name] ?? []), ...words];
+    insertEntry({
+      member_id: t.speaker.id, created_at: at, prompt: input.prompt ?? null, transcript: t.text,
+      summary: sensitive ? `${t.speaker.name}: private entry` : `${t.speaker.name} at the family table: ${firstSentence(t.text)}`,
+      mood: sensitive ? null : guessMood(t.text), topics: "[]", people: JSON.stringify(names),
+      private: sensitive ? 1 : 0, sensitive: sensitive ? 1 : 0,
+      word_count: metrics.word_count, mlu: metrics.mlu, unique_words: metrics.unique_words,
+      new_words: JSON.stringify(words), chapter: t.speaker.role === "elder" ? "At the family table" : null,
+      conversation_id: convo.id, turn: i,
+    });
+  }
+  if (input.thread_id) {
+    const th = threadById(input.thread_id);
+    if (th && people.some((p) => p.id === th.to_member_id)) markThreadUsed(th.id);
+  }
+  const praise = Object.entries(big).map(([n, w]) => `${n} used ${w.length === 1 ? "a new big word" : `${w.length} new big words`}: ${w.slice(0, 3).join(", ")}.`).join(" ");
+  return {
+    saved: true, conversation_id: convo.id, turns: turns.length, participants: names, summary: convo.summary,
+    big_words: big,
+    ...(sensitiveTurns ? { private_turns: sensitiveTurns } : {}),
+    say: `What a lovely chat. I've saved it to ${nameList}'s journals.${praise ? ` ${praise}` : ""}`,
+  };
+}
+
+function conversationView(viewer: Viewer, conversationId: number) {
+  const c = conversationById(conversationId);
+  if (!c) return null;
+  const turns = conversationTurns(c.id).filter((t) => canSee(viewer, t));
+  if (!turns.length) return null;
+  return {
+    type: "conversation" as const,
+    id: c.id,
+    date: fmtDate(c.created_at),
+    at: c.created_at,
+    participants: parse<number[]>(c.participants).map((id) => memberById(id)?.name).filter(Boolean) as string[],
+    prompt: c.prompt,
+    summary: c.summary,
+    turns: turns.map((t) => ({ id: t.id, who: memberById(t.member_id).name, text: t.transcript })),
+  };
+}
+
+// ───────────────────────────── dashboard ─────────────────────────────
+
 const childFirstAndLatest = (k: Member) => {
-  const es = entriesFor(k.id);
+  const es = entriesFor(k.id).filter((e) => !e.sensitive && !e.conversation_id);
   const latest = [...es].reverse().find((e) => e.word_count >= 15) ?? es.at(-1);
   return {
     first_answer: es[0] ? { date: fmtDate(es[0].created_at), text: es[0].transcript, words: es[0].word_count } : null,
@@ -495,72 +797,92 @@ const childFirstAndLatest = (k: Member) => {
   };
 };
 
-/** Everything the family dashboard's arc shows, in one call. Children can't open the dashboard. */
-export function dashboard(viewerName: string) {
-  const viewer = requireMember(viewerName);
-  if (viewer.role === "child") throw new HearthError("The family dashboard is for the grown-ups.");
+/** Everything the dashboard's arc and family view show. `viewer` null = household view. */
+export function dashboard(viewer: Viewer) {
   const members = allMembers();
   const weekAgo = new Date(Date.now() - 7 * DAY).toISOString();
-  const timeline = sharedEntriesSince(weekAgo)
-    .filter((e) => canSee(viewer, e))
-    .reverse()
-    .map((e) => {
-      const a = memberById(e.member_id);
-      return { id: e.id, date: fmtDate(e.created_at), at: e.created_at, who: a.name, role: a.role, summary: e.summary, text: e.transcript, mood: e.mood, chapter: e.chapter };
-    });
-  const kids = viewer.is_parent
-    ? members.filter((m) => m.role === "child").map((k) => ({ ...languageProgress(k.name, viewer.name), ...childFirstAndLatest(k) }))
-    : [];
-  const recentThreads = (db.prepare("SELECT * FROM threads WHERE created_at >= ? AND status != 'superseded' ORDER BY created_at").all(
-    new Date(Date.now() - 21 * DAY).toISOString(),
-  ) as unknown as Thread[]).map((t) => ({
+  const seen = new Set<number>();
+  const timeline: unknown[] = [];
+  for (const e of sharedEntriesSince(weekAgo).reverse()) {
+    if (!canSee(viewer, e)) continue;
+    if (e.conversation_id) {
+      if (seen.has(e.conversation_id)) continue;
+      seen.add(e.conversation_id);
+      const view = conversationView(viewer, e.conversation_id);
+      if (view) timeline.push(view);
+      continue;
+    }
+    const a = memberById(e.member_id);
+    timeline.push({ type: "entry", id: e.id, date: fmtDate(e.created_at), at: e.created_at, who: a.name, role: a.role, text: e.transcript, chapter: e.chapter });
+  }
+  const recentThreads = threadsSince(new Date(Date.now() - 21 * DAY).toISOString()).map((t) => ({
     id: t.id, kind: t.kind, status: t.status,
-    from: t.kind === "care_nudge" ? null : memberById(t.from_member_id).name, // care nudges never show their source
+    from: t.kind === "care_nudge" ? null : memberById(t.from_member_id).name,
     to: memberById(t.to_member_id).name,
   }));
   return {
-    viewer: viewer.name,
-    viewers: members.filter((m) => m.role !== "child").map((m) => m.name),
+    viewer: viewer?.name ?? null,
+    viewer_is_parent: !!viewer?.is_parent,
+    viewers: members.filter((m) => m.role !== "child").map((m) => ({ name: m.name, has_pin: hasPin(m), is_parent: !!m.is_parent })),
     family: familyOverview(),
     week: { stories: sharedEntriesSince(weekAgo).length, waiting: recentThreads.filter((t) => t.status === "pending").length },
-    kids, threads: recentThreads, timeline,
+    threads: recentThreads,
+    timeline,
+    demo: getSetting("demo") === "1",
+    care_nudges: careNudgesOn(),
+    retention: retentionPolicy(),
+    version: dataVersion(),
   };
 }
 
-/** One member's journal as `viewer` is allowed to see it — the panel under the arc. */
-export function memberJournal(viewerName: string, name: string) {
-  const viewer = requireMember(viewerName);
+/** One member's journal as `viewer` may see it — the panel under the arc. Pages with `before`. */
+export function memberJournal(viewer: Viewer, name: string, before?: number) {
   const m = requireMember(name);
-  const self = viewer.id === m.id;
+  const self = !!viewer && viewer.id === m.id;
   const person = { name: m.name, called: m.relation, role: m.role, age: m.age, photo: m.photo };
   const mode = m.role === "child" ? "Speaking practice" : m.role === "elder" ? "Memoir" : "Daily log";
-  if (m.role === "child" && !viewer.is_parent && !self) {
-    return { person, mode, locked: true, reason: `Only ${m.name}'s parents can open ${m.name}'s journal.` };
+  if (m.role === "child" && !viewer?.is_parent && !self) {
+    return {
+      person, mode, locked: true,
+      reason: viewer ? `Only ${m.name}'s parents can open ${m.name}'s journal.` : `Unlock as a parent to open ${m.name}'s journal.`,
+    };
   }
   const all = entriesFor(m.id);
-  const weekAgo = Date.now() - 7 * DAY;
-  const entries = [...all].reverse().slice(0, 12).map((e) =>
-    canSee(viewer, e)
-      ? { id: e.id, date: fmtDate(e.created_at), text: e.transcript, mood: e.mood, chapter: e.chapter, prompt: e.prompt, private: !!e.private }
-      : { id: e.id, date: fmtDate(e.created_at), hidden: true as const },
-  );
+  const newestFirst = [...all].reverse();
+  const startAt = before ? newestFirst.findIndex((e) => e.id === before) + 1 : 0;
+  const page = newestFirst.slice(startAt, startAt + PAGE);
+  const entries = page.map((e) => {
+    if (!canSee(viewer, e)) return { id: e.id, date: fmtDate(e.created_at), hidden: true as const };
+    const others = e.conversation_id ? participantsOf(e.conversation_id).filter((id) => id !== m.id).map((id) => memberById(id)?.relation || memberById(id)?.name) : [];
+    return {
+      id: e.id, date: fmtDate(e.created_at), text: e.transcript, chapter: e.chapter, prompt: e.prompt,
+      private: !!e.private, sensitive: !!e.sensitive,
+      conversation: e.conversation_id ? { id: e.conversation_id, with: others } : null,
+      can_delete: !!viewer && canDelete(viewer, e),
+    };
+  });
   const waiting = pendingThreadsFor(m.id).map((t) =>
     t.kind === "care_nudge" && !self
       ? { kind: t.kind, hidden: true as const }
       : { kind: t.kind, from: t.kind === "care_nudge" ? null : memberById(t.from_member_id).name, prompt: t.prompt },
   );
-  const base = { person, mode, locked: false, streak_days: streak(all), entries, waiting };
+  const base = {
+    person, mode, locked: false, streak_days: streak(all), entries, waiting,
+    more: startAt + PAGE < newestFirst.length, total: all.length,
+    kept_for_days: retentionPolicy()[m.role],
+  };
+  if (before) return base; // older pages only need entries
 
   if (m.role === "child") {
-    const p = languageProgress(m.name, self ? m.name : viewer.name);
+    const p = languageProgress(m);
     return {
       ...base,
       stats: [
-        { value: describeTimes(p.sentence_length_change_pct), label: "longer sentences than week one" },
-        { value: String(p.vocabulary_size), label: "different words used" },
+        { value: p.words_per_answer_first_week && p.words_per_answer_latest_week ? `${p.words_per_answer_first_week} → ${p.words_per_answer_latest_week}` : String(p.words_per_answer_latest_week), label: "words per answer, first week to now" },
+        { value: String(p.big_words_total), label: "new big words so far" },
         { value: `${p.streak_days} ${p.streak_days === 1 ? "day" : "days"}`, label: "practice streak" },
       ],
-      progress: { weekly: p.weekly, recent_new_words: p.recent_new_words, note: p.note },
+      progress: { weekly: p.weekly, recent_big_words: p.recent_big_words, note: p.note, method: p.method },
       ...childFirstAndLatest(m),
     };
   }
@@ -569,28 +891,23 @@ export function memberJournal(viewerName: string, name: string) {
     return {
       ...base,
       stats: [
-        { value: String(all.length), label: "stories told" },
+        { value: String(all.filter((e) => !e.conversation_id && !e.sensitive).length), label: "stories told" },
         { value: `${chapters.filter((c) => c.questions && c.stories > 0).length} of ${MEMOIR.length}`, label: "chapters started" },
-        { value: String(all.filter((e) => e.chapter === "Talks with the grandchildren").length), label: "talks with grandchildren" },
+        { value: String(all.filter((e) => e.chapter === "Talks with the grandchildren" || e.chapter === "At the family table").length), label: "talks with the grandchildren" },
       ],
       chapters,
     };
   }
+  const weekAgo = Date.now() - 7 * DAY;
   return {
     ...base,
     stats: [
       { value: String(all.filter((e) => Date.parse(e.created_at) >= weekAgo).length), label: "check-ins this week" },
       base.streak_days > 1
         ? { value: `${base.streak_days} days`, label: "streak" }
-        : { value: all.length ? fmtDate(all.at(-1)!.created_at).replace(/^\w+,\s*/, "") : "None yet", label: "last check-in" },
+        : { value: all.length ? fmtDate(all.at(-1)!.created_at).replace(/^\w+,?\s*/, "") : "None yet", label: "last check-in" },
       { value: String(all.filter((e) => e.private).length), label: "private entries" },
     ],
-    // Patterns are personal: only the person themselves sees what Hearth noticed.
-    noticed: self ? adultPattern(m) : null,
+    noticed: self ? adultPattern(m) : null, // patterns are personal
   };
-}
-
-function describeTimes(pct: number): string {
-  if (pct >= 100) return `${round(1 + pct / 100)}×`;
-  return `${pct > 0 ? "+" : ""}${pct}%`;
 }

@@ -87,3 +87,12 @@ export const STYLE_GUIDE: Record<Role, string> = {
     "Memoir mode. Be patient and curious, like a grandchild interviewing them. Let them ramble — " +
     "every detail is valuable. Ask one gentle follow-up about a specific detail they mentioned.",
 };
+
+/** Openers for a family conversation when there's no story waiting and no grandparent at the table. */
+export const TABLE_QUESTIONS = [
+  "Let's go round the table: what was the best thing that happened to each of you this week?",
+  "If our family went on an adventure tomorrow, where should we go, and why? Everyone gets a turn!",
+  "What's something you were scared of when you were little, and how did you get brave?",
+  "If you could invent a new family tradition, what would it be?",
+  "Who was kind to you this week, and what did they do?",
+];

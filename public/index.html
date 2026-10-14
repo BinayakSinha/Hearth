@@ -115,7 +115,51 @@ dialog::backdrop { background: rgba(23, 20, 42, .5); }
 .radio .script p { margin: 0 0 14px; transition: color .3s; color: var(--ink-soft); }
 .radio .script p.on { color: var(--ink); }
 .radio .row { display: flex; gap: 8px; justify-content: flex-end; }
-@media (prefers-reduced-motion: reduce) { .member .ph, .member.speaking .ph { animation: none; transition: none; } .lines .dot { display: none; } }
+/* who's looking */
+.who { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; font-size: 14px; }
+.who img, .who .lk { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.who .lk { display: grid; place-items: center; background: var(--paper); }
+.who.household { padding-left: 8px; }
+.lockbtn { font-size: 14px; padding: 6px 14px; }
+.demo { font-size: 13px; color: var(--ink-soft); padding-top: 4px; }
+.unlock { padding: 28px; }
+.unlock h2 { margin: 0 0 4px; font-size: 24px; font-weight: 600; }
+.people { display: flex; flex-wrap: wrap; gap: 14px; margin: 18px 0; }
+.person { display: flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0; padding: 6px; border-radius: 18px; width: 92px; }
+.person img, .person .ini2 { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 3px solid var(--c); }
+.person .ini2 { display: grid; place-items: center; background: var(--paper); font-weight: 600; font-size: 22px; color: var(--c); }
+.person[aria-pressed="true"] { background: var(--paper); }
+.person small { color: var(--ink-soft); font-size: 12px; }
+.pinrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pinrow input { font: inherit; font-size: 22px; letter-spacing: 8px; width: 9ch; padding: 8px 14px; border: 1.5px solid var(--rule); border-radius: 14px; background: var(--paper); color: var(--ink); text-align: center; }
+.pinrow input:focus-visible { outline-offset: 1px; }
+.err { color: #B4234A; font-size: 14px; margin-top: 8px; min-height: 1.4em; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .err { color: #FF8FAB; } }
+.primary { background: var(--hearth); border-color: var(--hearth); color: #3B2404; font-weight: 500; }
+
+/* entries: delete, older, conversations, fresh */
+.entry .foot { display: flex; justify-content: flex-end; gap: 10px; align-items: center; min-height: 22px; font-size: 13px; color: var(--ink-soft); }
+.linkbtn { background: none; border: 0; padding: 2px 0; font-size: 13px; color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; border-radius: 4px; }
+.linkbtn:hover { color: var(--ink); }
+.linkbtn.danger { color: #B4234A; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .linkbtn.danger { color: #FF8FAB; } }
+.tag { display: inline-block; font-size: 12px; padding: 1px 10px; border-radius: 999px; background: var(--hearth-wash); color: var(--hearth-ink); margin-left: 6px; }
+.older { margin: 4px 0 0 22px; font-size: 14px; }
+.convo { background: var(--paper); border-radius: 22px; padding: 16px 18px; margin: 0 0 18px; }
+.convo .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.stack { display: flex; }
+.stack img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 2px solid var(--paper); margin-left: -8px; }
+.stack img:first-child { margin-left: 0; }
+.convo .hd b { font-weight: 500; }
+.convo .hd span { font-size: 13px; color: var(--ink-soft); }
+.convo .sum { font-size: 14px; color: var(--ink-soft); margin: 0 0 10px; }
+.turn { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 3px 0; }
+.turn .w { font-size: 13px; font-weight: 500; color: var(--c); padding-top: 3px; }
+.turn p { margin: 0; font-size: 16px; line-height: 1.55; }
+.fresh { animation: fresh 3.5s ease-out; border-radius: 12px; }
+@keyframes fresh { 0%, 30% { background: var(--hearth-wash); } 100% { background: transparent; } }
+.keep { font-size: 12px; color: var(--ink-soft); margin-top: 24px; }
+@media (prefers-reduced-motion: reduce) { .member .ph, .member.speaking .ph, .fresh { animation: none; transition: none; } .lines .dot { display: none; } }
 </style>
 </head>
 <body>
@@ -125,8 +169,10 @@ dialog::backdrop { background: rgba(23, 20, 42, .5); }
       <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c3.5 4.5 8 8 8 14.5a8 8 0 1 1-16 0c0-3.5 1.7-5.8 3.5-7.4 0 2.8 1 4.4 2.8 5C13.6 10.5 13.8 7 16 3z" fill="var(--hearth)"/></svg>
       Hearth
     </div>
-    <label class="viewer">Viewing as <select id="viewer"></select></label>
+    <button class="who household" id="whoBtn" type="button" aria-haspopup="dialog"></button>
+    <button class="lockbtn" id="lockBtn" type="button" hidden>Lock</button>
   </header>
+  <div class="demo" id="demoNote" hidden>Sample family for the demo</div>
   <div class="stage" id="stage">
     <svg class="lines" id="lines" aria-hidden="true"></svg>
     <div class="center" id="center">
@@ -138,6 +184,25 @@ dialog::backdrop { background: rgba(23, 20, 42, .5); }
 </div>
 
 <section class="panel" id="panelWrap" aria-live="polite"><div class="wrap" id="panel"></div></section>
+
+<dialog id="unlock" aria-labelledby="unlockTitle">
+  <form class="unlock" id="unlockForm" method="dialog">
+    <h2 id="unlockTitle">Who's looking?</h2>
+    <div class="note">Unlock once and Hearth remembers you until you close the browser.</div>
+    <div class="people" id="people"></div>
+    <div id="pinArea" hidden>
+      <label for="pin" class="note" id="pinLabel">PIN</label>
+      <div class="pinrow">
+        <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" pattern="[0-9]*">
+        <button class="primary" type="submit" id="unlockGo">Unlock</button>
+      </div>
+    </div>
+    <div class="err" id="unlockErr" role="alert"></div>
+    <div class="row" style="display:flex;justify-content:flex-end;gap:8px">
+      <button type="button" id="closeUnlock">Cancel</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="radio" aria-labelledby="radioTitle">
   <div class="radio">
@@ -156,13 +221,24 @@ const PALETTE = ["var(--leo)", "var(--amara)", "var(--marcus)", "var(--rose)", "
 const NAMED = { Leo: "var(--leo)", Amara: "var(--amara)", Marcus: "var(--marcus)", Rose: "var(--rose)", Finn: "var(--finn)" };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
-
-let data = null, viewer = store.get("hearth.viewer") || "Amara", selected = null;
-const colorOf = (name) => NAMED[name] || PALETTE[(data?.family.findIndex((m) => m.name === name) ?? 0) % PALETTE.length];
+const session = {
+  get() { try { return sessionStorage.getItem("hearth.session"); } catch { return null; } },
+  set(v) { try { v ? sessionStorage.setItem("hearth.session", v) : sessionStorage.removeItem("hearth.session"); } catch {} },
+};
+let token = session.get();
+let data = null, selected = null, version = 0, panelEntryIds = new Set(), panelKey = "", timelineIds = new Set(), firstLoad = true;
+const colorOf = (name) => NAMED[name] || PALETTE[Math.max(0, data?.family.findIndex((m) => m.name === name) ?? 0) % PALETTE.length];
 const member = (name) => data.family.find((m) => m.name === name);
 const label = (m) => (m.called && m.called !== m.name ? m.called : "");
-const roleWord = { child: "Speaking practice", adult: "Daily log", elder: "Memoir" };
+const LOCK_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
+
+/* All API calls carry the session; the server decides what this viewer may see. */
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "content-type": "application/json", ...(token ? { "x-hearth-session": token } : {}), ...(opts.headers || {}) } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(d.error || `Request failed (${r.status})`), { status: r.status });
+  return d;
+}
 
 /* Seat the family: grandparents at the top of the arc, children beside them, parents next, others at the ends. */
 function seatingOrder(family) {
@@ -196,6 +272,7 @@ function layout() {
   });
   geom = { W, H, cx, cy, R, pos, narrow };
 
+  const focused = document.activeElement?.dataset?.name;
   stage.querySelectorAll(".member").forEach((el) => el.remove());
   for (const m of seats) {
     const p = pos[m.name];
@@ -222,9 +299,11 @@ function layout() {
     });
     stage.appendChild(b);
   }
+  if (focused) stage.querySelector(`.member[data-name="${focused}"]`)?.focus();
   const c = $("center");
   c.style.left = cx + "px";
   c.style.top = (narrow ? cy + 34 : cy - R * 0.6) + "px";
+  markLinked();
   drawLines();
 }
 
@@ -244,16 +323,14 @@ function drawLines() {
     pairs.set(key, p);
   }
   const hx = cx, hy = geom.narrow ? cy - R * 0.3 : cy - R * 0.6 - 10;
-  // Faint guide arc the family sits on.
   let html = `<path d="M${cx - R} ${cy} A${R} ${R} 0 0 1 ${cx + R} ${cy}" stroke="var(--rule)" stroke-width="2" stroke-dasharray="1 9" stroke-linecap="round"/>`;
   let k = 0;
   for (const p of pairs.values()) {
     const A = pos[p.a], B = pos[p.b];
     const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
     const qx = mx + (hx - mx) * 0.55, qy = my + (cy - my) * 0.55;
-    const d = `M${A.x} ${A.y} Q${qx} ${qy} ${B.x} ${B.y}`;
     const on = !selected || selected === p.a || selected === p.b;
-    html += `<path id="l${k}" d="${d}" stroke="${colorOf(p.a)}" stroke-width="${Math.min(2 + p.n, 6)}" stroke-linecap="round" opacity="${on ? 0.55 : 0.12}"/>`;
+    html += `<path id="l${k}" d="M${A.x} ${A.y} Q${qx} ${qy} ${B.x} ${B.y}" stroke="${colorOf(p.a)}" stroke-width="${Math.min(2 + p.n, 6)}" stroke-linecap="round" opacity="${on ? 0.55 : 0.12}"/>`;
     if (p.pending && on) html += `<circle class="dot" r="5" fill="var(--hearth)"><animateMotion dur="3.2s" repeatCount="indefinite"><mpath href="#l${k}"/></animateMotion></circle>`;
     k++;
   }
@@ -266,49 +343,82 @@ function drawLines() {
   svg.innerHTML = html;
 }
 
-function select(name) {
-  selected = name;
-  history.replaceState(null, "", name ? `#${encodeURIComponent(name)}` : location.pathname);
-  $("stage").classList.toggle("focused", !!name);
-  // People who've passed stories to or from the selected person stay bright.
-  const linked = new Set(data.threads.filter((t) => t.kind === "story_bridge" && (t.from === name || t.to === name)).flatMap((t) => [t.from, t.to]));
+function markLinked() {
+  $("stage").classList.toggle("focused", !!selected);
+  const linked = new Set(data.threads.filter((t) => t.kind === "story_bridge" && (t.from === selected || t.to === selected)).flatMap((t) => [t.from, t.to]));
   document.querySelectorAll(".member").forEach((b) => {
-    b.setAttribute("aria-pressed", String(b.dataset.name === name));
+    b.setAttribute("aria-pressed", String(b.dataset.name === selected));
     b.classList.toggle("linked", linked.has(b.dataset.name));
   });
+}
+
+function select(name, { quiet = false } = {}) {
+  selected = name;
+  history.replaceState(null, "", name ? `#${encodeURIComponent(name)}` : location.pathname);
+  markLinked();
   drawLines();
-  name ? loadJournal(name) : renderFamilyWeek();
+  name ? loadJournal(name, quiet) : renderFamilyWeek(quiet);
   const top = $("panelWrap").getBoundingClientRect().top;
-  if (name && top > innerHeight * 0.7) $("panelWrap").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  if (name && !quiet && top > innerHeight * 0.7) $("panelWrap").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
-function renderFamilyWeek() {
+const photoOf = (name) => member(name)?.photo;
+function conversationHtml(c, fresh) {
+  return `<div class="convo${fresh ? " fresh" : ""}" data-id="c${c.id}">
+    <div class="hd"><span class="stack">${c.participants.map((n) => photoOf(n) ? `<img src="${esc(photoOf(n))}" alt="">` : "").join("")}</span>
+      <b>At the family table</b><span>${esc(c.participants.join(", "))} · ${esc(c.date)}</span></div>
+    <p class="sum">${esc(c.summary)}</p>
+    ${c.turns.map((t) => `<div class="turn" style="--c:${colorOf(t.who)}"><span class="w">${esc(t.who)}</span><p class="said">${esc(t.text)}</p></div>`).join("")}
+  </div>`;
+}
+
+function renderFamilyWeek(quiet) {
   const t = data.timeline;
+  const ids = new Set(t.map((x) => (x.type === "conversation" ? `c${x.id}` : `e${x.id}`)));
+  const viewerKey = `week|${data.viewer}`;
+  const isFresh = (key) => quiet && panelKey === viewerKey && !timelineIds.has(key);
   $("panel").innerHTML = `
-    <div class="ph-head"><div><h2>This week at home</h2><div class="sub">Shared stories from the last seven days. Pick someone on the arc to open their journal.</div></div></div>
-    <div class="cols"><div>${t.length ? t.slice(0, 14).map((e) => {
+    <div class="ph-head"><div><h2>This week at home</h2><div class="sub">${data.viewer ? `What ${esc(data.viewer)} can see from the last seven days.` : "Shared stories from the last seven days. Unlock to see more, or pick someone on the arc."}</div></div></div>
+    <div class="cols"><div>${t.length ? t.slice(0, 16).map((e) => {
+      if (e.type === "conversation") return conversationHtml(e, isFresh(`c${e.id}`));
       const m = member(e.who);
-      return `<div class="entry" style="--c:${colorOf(e.who)}"><div class="when">${m?.photo ? `<img class="mini" src="${esc(m.photo)}" alt="">` : ""}${esc(e.who)} · ${esc(e.date)}</div><p class="said">${esc(e.text)}</p></div>`;
+      return `<div class="entry${isFresh(`e${e.id}`) ? " fresh" : ""}" style="--c:${colorOf(e.who)}"><div class="when">${m?.photo ? `<img class="mini" src="${esc(m.photo)}" alt="">` : ""}${esc(e.who)} · ${esc(e.date)}</div><p class="said">${esc(e.text)}</p></div>`;
     }).join("") : `<p class="sub">No stories yet this week. Say "Alexa, open Hearth" to tell the first one.</p>`}</div>
-    <div>${data.family.filter((m) => m.waiting).map((m) => `<div class="box waiting" style="--c:${colorOf(m.name)}"><div class="lede">Waiting for ${esc(m.name)}</div><p>${m.waiting} ${m.waiting === 1 ? "question" : "questions"} from the family, ready next time ${esc(m.name)} talks to Alexa.</p></div>`).join("")}</div></div>`;
+    <div>${data.family.filter((m) => m.waiting).map((m) => `<div class="box waiting"><div class="lede">Waiting for ${esc(m.name)}</div><p>${m.waiting} ${m.waiting === 1 ? "question" : "questions"} from the family, ready next time ${esc(m.name)} talks to Alexa.</p></div>`).join("")}</div></div>`;
+  timelineIds = ids;
+  panelKey = viewerKey;
 }
 
-async function loadJournal(name) {
+async function loadJournal(name, quiet) {
   const c = colorOf(name);
-  $("panel").innerHTML = `<p class="sub">Opening ${esc(name)}'s journal…</p>`;
+  if (!quiet) $("panel").innerHTML = `<p class="sub">Opening ${esc(name)}'s journal…</p>`;
   try {
-    const r = await fetch(`api/journal/${encodeURIComponent(name)}?viewer=${encodeURIComponent(viewer)}`);
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error);
+    const j = await api(`api/journal/${encodeURIComponent(name)}`);
     if (selected !== name) return;
-    $("panel").innerHTML = journalHtml(j, c);
-    $("panel").querySelector(".back")?.addEventListener("click", () => select(null));
+    // Only highlight entries that arrived while this same journal, for this same viewer, was open.
+    const key = `${name}|${data.viewer}|${j.locked}`;
+    const before = quiet && key === panelKey && panelEntryIds.size ? panelEntryIds : null;
+    $("panel").innerHTML = journalHtml(j, c, before);
+    panelEntryIds = new Set((j.entries || []).map((e) => e.id));
+    panelKey = key;
+    wirePanel(j, c);
   } catch (e) {
     $("panel").innerHTML = `<p class="sub">Couldn't open ${esc(name)}'s journal: ${esc(e.message)}</p>`;
   }
 }
 
-function journalHtml(j, c) {
+function entryHtml(e, p, c, fresh) {
+  if (e.hidden) return `<div class="entry hidden" style="--c:var(--rule)" data-id="${e.id}"><div class="when">${esc(e.date)}</div><p>A private entry. Only ${esc(p.name)} can read it.</p></div>`;
+  const convo = e.conversation ? `<span class="tag">At the family table${e.conversation.with.length ? ` with ${esc(e.conversation.with.join(" and "))}` : ""}</span>` : "";
+  return `<div class="entry${fresh ? " fresh" : ""}" style="--c:${c}" data-id="${e.id}">
+    <div class="when">${esc(e.date)}${e.chapter && !e.conversation ? ` · ${esc(e.chapter)}` : ""}${e.private ? " · private" : ""}${convo}</div>
+    ${e.prompt && p.role !== "adult" && !e.conversation ? `<div class="q">${esc(e.prompt.length > 120 ? e.prompt.slice(0, 117) + "…" : e.prompt)}</div>` : ""}
+    <p class="said">${esc(e.text)}</p>
+    ${e.can_delete ? `<div class="foot"><button class="linkbtn" type="button" data-del="${e.id}">Delete</button></div>` : ""}
+  </div>`;
+}
+
+function journalHtml(j, c, seenBefore) {
   const p = j.person;
   const head = `<div class="ph-head" style="--c:${c}">
       ${p.photo ? `<img src="${esc(p.photo)}" alt="">` : ""}
@@ -316,12 +426,10 @@ function journalHtml(j, c) {
       <div class="sub"><span class="pill">${esc(j.mode)}</span>${!j.locked && j.streak_days > 1 ? ` &nbsp;${j.streak_days}-day streak` : ""}</div></div>
       <button class="back" type="button">Show the whole family</button></div>`;
   if (j.locked) {
-    return head + `<div class="locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><p>${esc(j.reason)}</p></div>`;
+    return head + `<div class="locked">${LOCK_ICON.replace('width="16" height="16"', 'width="40" height="40"')}<p>${esc(j.reason)}</p>${data.viewer ? "" : `<button type="button" class="primary" data-unlock>Unlock as a parent</button>`}</div>`;
   }
   const stats = `<div class="stats">${j.stats.map((s) => `<div class="stat"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>`;
-  const entries = j.entries.map((e) => e.hidden
-    ? `<div class="entry hidden" style="--c:var(--rule)"><div class="when">${esc(e.date)}</div><p>A private entry. Only ${esc(p.name)} can read it.</p></div>`
-    : `<div class="entry" style="--c:${c}"><div class="when">${esc(e.date)}${e.chapter ? ` · ${esc(e.chapter)}` : ""}${e.private ? " · private" : ""}</div>${e.prompt && p.role !== "adult" ? `<div class="q">${esc(e.prompt.length > 120 ? e.prompt.slice(0, 117) + "…" : e.prompt)}</div>` : ""}<p class="said">${esc(e.text)}</p></div>`).join("");
+  const entries = j.entries.map((e) => entryHtml(e, p, c, seenBefore && !seenBefore.has(e.id))).join("");
   const waiting = j.waiting.length ? `<div class="box waiting"><div class="lede">Waiting for ${esc(p.name)}</div>${j.waiting.map((w) => w.hidden
     ? `<p>A private nudge for ${esc(p.name)}.</p>`
     : `<p class="said">${w.from ? `<span class="sub">From ${esc(member(w.from)?.called || w.from)} · </span>` : ""}${esc(w.prompt)}</p>`).join("")}</div>` : "";
@@ -331,35 +439,167 @@ function journalHtml(j, c) {
     side = `<div class="box" style="--c:${c}"><div class="lede">How ${esc(p.name)}'s answers have grown</div>
         ${j.first_answer ? `<p class="said then">${esc(j.first_answer.text)} <span class="sub">(${esc(j.first_answer.date)})</span></p>` : ""}
         ${j.latest_answer ? `<p class="said now">${esc(j.latest_answer.text)}</p>` : ""}
-        <div class="bars" role="img" aria-label="Average words per answer, week by week: ${j.progress.weekly.map((w) => w.avg_words).join(", ")}">${j.progress.weekly.map((w) => `<div style="height:${Math.max(6, (w.avg_words / max) * 70)}px"><span>${esc((w.week.split(",")[1] || w.week).trim())}</span></div>`).join("")}</div>
+        <div class="bars" role="img" aria-label="Average words per answer, week by week: ${j.progress.weekly.map((w) => w.avg_words).join(", ")}">${j.progress.weekly.map((w) => `<div style="height:${Math.max(6, (w.avg_words / max) * 70)}px" title="${w.avg_words} words per answer"><span>${esc(w.week.replace(/^\w+,?\s*/, "").replace(/(\w{3})\w*$/, "$1"))}</span></div>`).join("")}</div>
         <div class="note">Average words per answer, week by week</div></div>
-      ${j.progress.recent_new_words.length ? `<div class="box" style="--c:${c}"><div class="lede">New words lately</div><div class="words">${j.progress.recent_new_words.map((w) => `<span class="word">${esc(w)}</span>`).join("")}</div></div>` : ""}
+      ${j.progress.recent_big_words.length ? `<div class="box" style="--c:${c}"><div class="lede">New big words lately</div><div class="words">${j.progress.recent_big_words.map((w) => `<span class="word">${esc(w)}</span>`).join("")}</div><div class="note">Words ${esc(p.name)} used for the first time that are uncommon in everyday speech for a ${p.age ?? ""}-year-old.</div></div>` : ""}
       ${waiting}<p class="note">${esc(j.progress.note)}</p>`;
   } else if (p.role === "elder") {
     side = `<div class="box" style="--c:${c}"><div class="lede">${esc(p.called || p.name)}'s memoir</div>${j.chapters.map((ch) => `<div class="chapter"><span>${esc(ch.chapter)}</span><small>${ch.stories}${ch.questions ? ` of ${ch.questions}` : ""}</small><div class="bar"><i style="width:${ch.questions ? Math.min(100, (ch.stories / ch.questions) * 100) : 100}%"></i></div></div>`).join("")}</div>${waiting}`;
   } else if (j.noticed) {
     side = `<div class="box"><div class="lede">Hearth noticed</div><p class="said">${esc(j.noticed[0].toUpperCase() + j.noticed.slice(1))}</p></div>${waiting}`;
   }
-  return head + stats + `<div class="cols"><div><h3>Journal</h3>${entries || `<p class="sub">Nothing here yet. Say "Alexa, open Hearth for ${esc(p.name)}" to start.</p>`}</div><div>${side}</div></div>`;
+  const keep = j.kept_for_days ? `Entries are kept for ${j.kept_for_days >= 365 && j.kept_for_days % 365 === 0 ? (j.kept_for_days === 365 ? "a year" : `${j.kept_for_days / 365} years`) : `${j.kept_for_days} days`}, then removed automatically.` : "Memoir stories are kept until someone deletes them.";
+  return head + stats + `<div class="cols"><div><h3>Journal</h3><div id="entryList">${entries || `<p class="sub">Nothing here yet. Say "Alexa, open Hearth for ${esc(p.name)}" to start.</p>`}</div>
+    ${j.more ? `<button class="older" type="button" data-older="${j.entries.at(-1).id}">Show older entries</button>` : ""}
+    <p class="keep">${keep}</p></div><div>${side}</div></div>`;
 }
 
-async function load() {
+/* Delete, older entries, unlock — all handled by delegation on the panel. */
+function wirePanel(j, c) {
+  const panel = $("panel");
+  panel.querySelector(".back")?.addEventListener("click", () => select(null));
+  panel.querySelector("[data-unlock]")?.addEventListener("click", openUnlock);
+  panel.onclick = async (ev) => {
+    const del = ev.target.closest("[data-del]");
+    const confirmDel = ev.target.closest("[data-confirm]");
+    const keep = ev.target.closest("[data-keep]");
+    const older = ev.target.closest("[data-older]");
+    if (del) {
+      const foot = del.parentElement;
+      foot.innerHTML = `<span>Delete this for good?</span><button class="linkbtn danger" type="button" data-confirm="${del.dataset.del}">Delete</button><button class="linkbtn" type="button" data-keep="${del.dataset.del}">Keep</button>`;
+      foot.querySelector("[data-keep]").focus();
+    } else if (keep) {
+      keep.parentElement.innerHTML = `<button class="linkbtn" type="button" data-del="${keep.dataset.keep}">Delete</button>`;
+    } else if (confirmDel) {
+      const id = confirmDel.dataset.confirm;
+      const row = panel.querySelector(`.entry[data-id="${id}"]`);
+      try {
+        await api(`api/entries/${id}`, { method: "DELETE" });
+        row?.remove();
+        await refresh();
+      } catch (e) {
+        confirmDel.parentElement.innerHTML = `<span>${esc(e.message)}</span>`;
+      }
+    } else if (older) {
+      older.disabled = true;
+      older.textContent = "Loading…";
+      try {
+        const page = await api(`api/journal/${encodeURIComponent(j.person.name)}?before=${older.dataset.older}`);
+        $("entryList").insertAdjacentHTML("beforeend", page.entries.map((e) => entryHtml(e, j.person, c, false)).join(""));
+        page.entries.forEach((e) => panelEntryIds.add(e.id));
+        if (page.more) { older.dataset.older = page.entries.at(-1).id; older.disabled = false; older.textContent = "Show older entries"; }
+        else older.remove();
+      } catch (e) {
+        older.textContent = "Couldn't load older entries. Try again";
+        older.disabled = false;
+      }
+    }
+  };
+}
+
+function renderWho() {
+  const b = $("whoBtn");
+  const v = data.viewer ? member(data.viewer) : null;
+  b.classList.toggle("household", !v);
+  b.innerHTML = v
+    ? `${v.photo ? `<img src="${esc(v.photo)}" alt="">` : ""}<span>${esc(v.name)}</span>`
+    : `<span class="lk">${LOCK_ICON}</span><span>Household view · Unlock</span>`;
+  b.setAttribute("aria-label", v ? `Viewing as ${v.name}. Switch person` : "Household view. Unlock as a family member");
+  $("lockBtn").hidden = !v;
+  $("demoNote").hidden = !data.demo;
+}
+
+async function load({ quiet = false } = {}) {
   try {
-    const r = await fetch(`api/dashboard?viewer=${encodeURIComponent(viewer)}`);
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error);
+    const d = await api("api/dashboard");
+    if (token && !d.viewer) { token = null; session.set(null); } // session expired
+    const newEntries = quiet && data ? d.timeline.filter((x) => !timelineIds.has(x.type === "conversation" ? `c${x.id}` : `e${x.id}`)) : [];
     data = d;
-    $("viewer").innerHTML = d.viewers.map((v) => `<option ${v === viewer ? "selected" : ""}>${esc(v)}</option>`).join("");
+    version = d.version;
+    renderWho();
     $("week").textContent = `${d.week.stories} ${d.week.stories === 1 ? "story" : "stories"} this week${d.week.waiting ? ` · ${d.week.waiting} waiting` : ""}`;
     layout();
-    const fromHash = decodeURIComponent(location.hash.slice(1));
-    select(member(fromHash) ? fromHash : selected && member(selected) ? selected : null);
+    if (firstLoad) {
+      firstLoad = false;
+      const fromHash = decodeURIComponent(location.hash.slice(1));
+      select(member(fromHash) ? fromHash : null);
+    } else {
+      select(selected && member(selected) ? selected : null, { quiet: true });
+    }
+    // Someone just spoke to Alexa: pulse their bubble.
+    for (const n of new Set(newEntries.flatMap((x) => (x.type === "conversation" ? x.participants : [x.who])))) {
+      const el = document.querySelector(`.member[data-name="${n}"]`);
+      if (!el) continue;
+      el.classList.add("speaking");
+      setTimeout(() => el.classList.remove("speaking"), 2400);
+    }
   } catch (e) {
     $("panel").innerHTML = `<p class="sub">Couldn't load the family journal: ${esc(e.message)}. Check the Hearth server is running and seeded (npm run seed).</p>`;
   }
 }
+const refresh = () => load({ quiet: true });
 
-$("viewer").addEventListener("change", (e) => { viewer = e.target.value; store.set("hearth.viewer", viewer); load(); });
+/* Live refresh: a tiny version check every few seconds while the page is visible. */
+setInterval(async () => {
+  if (document.hidden || !data || $("unlock").open) return;
+  try {
+    const { version: v } = await api("api/pulse");
+    if (v !== version) refresh();
+  } catch {}
+}, 4000);
+
+/* Who's looking: pick a person, PIN once if they have one. */
+let chosen = null;
+function openUnlock() {
+  chosen = null;
+  $("unlockErr").textContent = "";
+  $("pinArea").hidden = true;
+  $("pin").value = "";
+  $("people").innerHTML = data.viewers.map((v) => {
+    const m = member(v.name);
+    return `<button type="button" class="person" style="--c:${colorOf(v.name)}" data-person="${esc(v.name)}" aria-pressed="false">
+      ${m?.photo ? `<img src="${esc(m.photo)}" alt="">` : `<span class="ini2">${esc(v.name[0])}</span>`}
+      <span>${esc(v.name)}</span><small>${v.has_pin ? "PIN" : "No PIN"}</small></button>`;
+  }).join("");
+  $("unlock").showModal();
+  $("people").querySelector(".person")?.focus();
+}
+async function unlockAs(name, pin) {
+  try {
+    const out = await api("api/session", { method: "POST", body: JSON.stringify({ viewer: name, pin }) });
+    token = out.token;
+    session.set(token);
+    $("unlock").close();
+    await load({ quiet: true });
+  } catch (e) {
+    $("unlockErr").textContent = e.status === 401 ? "That PIN didn't match. Try again." : e.message;
+    $("pin").select();
+  }
+}
+$("people").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-person]");
+  if (!b) return;
+  chosen = data.viewers.find((v) => v.name === b.dataset.person);
+  $("people").querySelectorAll(".person").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  $("unlockErr").textContent = "";
+  if (!chosen.has_pin) return unlockAs(chosen.name);
+  $("pinLabel").textContent = `${chosen.name}'s PIN`;
+  $("pinArea").hidden = false;
+  $("pin").value = "";
+  $("pin").focus();
+});
+$("pin").addEventListener("input", () => { $("unlockErr").textContent = ""; });
+$("unlockForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!chosen) { $("unlockErr").textContent = "Pick who's looking first."; return; }
+  const pin = $("pin").value.trim();
+  if (!/^\d{4,6}$/.test(pin)) { $("unlockErr").textContent = "Enter your 4 to 6 digit PIN."; return; }
+  unlockAs(chosen.name, pin);
+});
+$("closeUnlock").addEventListener("click", () => $("unlock").close());
+$("whoBtn").addEventListener("click", openUnlock);
+$("lockBtn").addEventListener("click", () => { token = null; session.set(null); refresh(); });
+
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => data && layout(), 120); });
 
 /* Family Radio: reads the episode paragraph by paragraph and lights up whoever is being talked about. */
@@ -369,9 +609,7 @@ $("radioBtn").addEventListener("click", async () => {
   $("radioSub").textContent = "";
   $("radio").showModal();
   try {
-    const r = await fetch(`api/radio?viewer=${encodeURIComponent(viewer)}`);
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error);
+    const d = await api("api/radio");
     radioParas = d.script.split(/\n+/).filter(Boolean);
     $("radioSub").textContent = `The last ${d.period_days} days, as Alexa reads it on Sunday evening.`;
     $("radioScript").innerHTML = radioParas.map((p) => `<p class="on">${esc(p)}</p>`).join("");
@@ -380,8 +618,7 @@ $("radioBtn").addEventListener("click", async () => {
   }
 });
 function light(i) {
-  const ps = $("radioScript").querySelectorAll("p");
-  ps.forEach((p, j) => p.classList.toggle("on", i < 0 || j === i));
+  $("radioScript").querySelectorAll("p").forEach((p, j) => p.classList.toggle("on", i < 0 || j === i));
   const text = i >= 0 ? radioParas[i] : "";
   document.querySelectorAll(".member").forEach((b) => {
     const m = member(b.dataset.name);

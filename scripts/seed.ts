@@ -9,13 +9,17 @@
 //  • Gran: memoir stories that become questions for Leo — and Leo's news becomes questions for Gran.
 //  • Amara: "tired" several times this week → Hearth notices the pattern.
 //  • Marcus: a plumber call (for recall) and a PRIVATE birthday-surprise entry (privacy demo).
+//  • Two family conversations (speaker labels stand in for Alexa+ voice ID).
 //  • Left pending for the LIVE demo: Gran's first-bicycle story, waiting as a question for Leo.
-import { pendingThreadsFor, findMember, resetAll } from "../src/db.js";
-import { registerMember, saveEntry } from "../src/memory.js";
+//
+// Demo PIN for Amara, Marcus and Finn: 1234. Gran chose not to use a PIN.
+import { pendingThreadsFor, findMember, resetAll, setSetting } from "../src/db.js";
+import { registerMember, saveConversation, saveEntry } from "../src/memory.js";
 import { KID_QUESTIONS, ADULT_QUESTIONS } from "../src/prompts.js";
 
 const DAY = 86_400_000;
-const TZ = process.env.HEARTH_TZ ?? "Asia/Kolkata";
+const TZ = process.env.HEARTH_TZ ?? "Europe/London";
+const DEMO_PIN = "1234";
 /** `daysAgo` days back, at a given local hour. */
 function at(daysAgo: number, hour: number, minute = 0): string {
   const d = new Date(Date.now() - daysAgo * DAY);
@@ -73,11 +77,13 @@ const ENTRIES: Seed[] = [
 
 async function main() {
   resetAll();
-  registerMember({ name: "Leo", role: "child", age: 7, relation: "Leo", photo: "photos/leo.jpg" });
-  registerMember({ name: "Amara", role: "adult", age: 35, relation: "Mum", is_parent: true, photo: "photos/amara.jpg" });
-  registerMember({ name: "Marcus", role: "adult", age: 36, relation: "Dad", is_parent: true, photo: "photos/marcus.jpg" });
+  registerMember({ name: "Amara", role: "adult", age: 35, relation: "Mum", is_parent: true, photo: "photos/amara.jpg", pin: DEMO_PIN });
+  registerMember({ name: "Marcus", role: "adult", age: 36, relation: "Dad", is_parent: true, photo: "photos/marcus.jpg", pin: DEMO_PIN });
+  registerMember({ name: "Leo", role: "child", age: 7, relation: "Leo", photo: "photos/leo.jpg", added_by: "Amara", parent_consent: true });
   registerMember({ name: "Rose", role: "elder", age: 78, relation: "Gran", photo: "photos/rose.jpg" });
-  registerMember({ name: "Finn", role: "adult", age: 31, relation: "Uncle Finn", photo: "photos/finn.jpg" });
+  registerMember({ name: "Finn", role: "adult", age: 31, relation: "Uncle Finn", photo: "photos/finn.jpg", pin: DEMO_PIN });
+  setSetting("demo", "1");
+  setSetting("care_nudges", "on");
 
   // Insert in chronological order so threads are created and answered in the right sequence.
   const ordered = [...ENTRIES].sort((a, b) => (b.d - a.d) || (a.h - b.h));
@@ -90,8 +96,34 @@ async function main() {
     }
     await saveEntry({ name: e.who, transcript: e.text, prompt, thread_id, private: e.private, at: at(e.d, e.h) });
   }
+  // Family conversations (each turn labelled with its speaker, as Alexa+ voice ID would).
+  await saveConversation({
+    at: at(13, 18, 30),
+    prompt: "If our family went on an adventure tomorrow, where should we go, and why? Everyone gets a turn!",
+    turns: [
+      { speaker: "Finn", text: "Climbing! There's a big outdoor crag in the Peak District, an hour from here." },
+      { speaker: "Leo", text: "I want to climb too. I am good at the climbing frame." },
+      { speaker: "Marcus", text: "You are, mate. Finn, could Leo try the kids' wall at your centre first?" },
+      { speaker: "Finn", text: "Definitely. They have a beginners' session on Saturday mornings. I'll book two spots." },
+      { speaker: "Leo", text: "Can I wear the helmet? And the rope thing?" },
+      { speaker: "Marcus", text: "The harness. Yes, you'll wear both, and Finn will hold the rope." },
+    ],
+  });
+  await saveConversation({
+    at: at(2, 18, 0),
+    prompt: "Gran, what was the village like when you were little? Leo, get a question ready for Gran!",
+    turns: [
+      { speaker: "Rose", text: "It was tiny. One shop, one church, and a pond where we skated when it froze in January." },
+      { speaker: "Leo", text: "Gran, did you have a television? And what did you do when it was raining and you could not go outside?" },
+      { speaker: "Rose", text: "No television until I was twelve! When it rained we played cards by the fire and listened to the radio." },
+      { speaker: "Amara", text: "That's where your love of cards comes from, isn't it? You still beat everyone at rummy." },
+      { speaker: "Leo", text: "That sounds peaceful but also a bit boring. I think I would build an enormous den with all the blankets and pretend it was a submarine." },
+      { speaker: "Rose", text: "We did build dens! Under the kitchen table, with my mother's tablecloths. She was not pleased." },
+    ],
+  });
+
   const waiting = pendingThreadsFor(findMember("Leo")!.id);
-  console.log(`Seeded ${ENTRIES.length} entries for the Hale family.`);
+  console.log(`Seeded ${ENTRIES.length} entries and 2 family conversations for the Hale family. Demo PIN: ${DEMO_PIN}`);
   console.log(`Waiting for Leo (live demo): ${waiting.map((t) => t.prompt).join(" | ") || "nothing"}`);
 }
 

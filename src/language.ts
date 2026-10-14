@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 // Deterministic language analysis. These numbers are computed in code (not by the LLM)
 // so the parent dashboard is reproducible and explainable.
 //
@@ -56,6 +58,65 @@ export function analyze(text: string): LanguageMetrics {
 /** Words worth celebrating to a parent: new, not a stopword, and not trivially short. */
 export function notableWords(fresh: string[]): string[] {
   return fresh.filter((w) => !STOPWORDS.has(w) && w.length >= 5);
+}
+
+// ── Age-graded "big words" ──
+// Word frequency ranks from SUBTLEX-US (74k words ranked by how often they're spoken).
+// A word counts as a "big word" for a child when it's rarer in everyday speech than the
+// threshold for their age: "played" (#1,203) isn't one; "extraordinary" (#3,262) is for a
+// seven-year-old; "germinating" (#55,387) is for nearly anyone.
+let RANKS: Map<string, number> | null = null;
+function ranks(): Map<string, number> {
+  if (!RANKS) {
+    const list = createRequire(import.meta.url)("subtlex-word-frequencies") as { word: string }[];
+    RANKS = new Map();
+    list.forEach((x, i) => {
+      const w = x.word.toLowerCase();
+      if (!RANKS!.has(w)) RANKS!.set(w, i + 1);
+    });
+  }
+  return RANKS;
+}
+
+/** Rank of a word, trying the US spelling for British variants (favourite → favorite, colour → color). */
+export function wordRank(word: string): number | undefined {
+  const w = word.toLowerCase();
+  const variants = [w, w.replace(/our(s?)$/, "or$1"), w.replace(/our/, "or"), w.replace(/is(e|ed|es|ing)$/, "iz$1"), w.replace(/tre$/, "ter"), w.replace(/s$/, ""), w.replace(/es$/, "")];
+  const found = variants.map((v) => ranks().get(v)).filter((r): r is number => r !== undefined);
+  return found.length ? Math.min(...found) : undefined;
+}
+
+/** Rough syllable count — good enough to tell "blanket" from "extraordinary". */
+export function syllables(word: string): number {
+  const w = word.toLowerCase().replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "").replace(/^y/, "");
+  return Math.max(1, (w.match(/[aeiouy]{1,2}/g) ?? []).length);
+}
+
+export function bigWordThreshold(age: number | null): number {
+  const a = age ?? 8;
+  if (a <= 5) return 1800;
+  if (a <= 8) return 2500;
+  if (a <= 10) return 4000;
+  if (a <= 12) return 6000;
+  return 9000;
+}
+
+/**
+ * Of the words a child used for the first time, which are worth celebrating?
+ * Skips names, stopwords, unknown words (often names or transcription errors) and any word
+ * that was in the question Alexa asked — repeating "bicycle" back isn't learning it.
+ */
+export function bigWords(fresh: string[], age: number | null, prompt: string | null, names: Set<string>): string[] {
+  const echoed = new Set(tokenize(prompt ?? ""));
+  const limit = bigWordThreshold(age);
+  return fresh.filter((w) => {
+    if (w.length < 4 || STOPWORDS.has(w) || names.has(w) || echoed.has(w)) return false;
+    const r = wordRank(w);
+    if (r === undefined || r <= limit) return false;
+    // Rare in film dialogue isn't the same as advanced: "blanket" and "cushions" are rare on
+    // screen but everyday for a child. Long words, or genuinely rare ones, are the real signal.
+    return syllables(w) >= 3 || r > 15000;
+  });
 }
 
 /** Capitalised words that aren't at the start of a sentence — names like "Lakshmi" or "Saturn". */
