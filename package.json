@@ -1,15 +1,15 @@
 {
   "name": "hearth",
   "version": "0.1.0",
-  "description": "Hearth — a family memory that talks back. An Alexa+ MCP server (Streamable HTTP) for family voice journaling, kids' speaking practice and cross-generational story threads.",
+  "description": "Hearth \u2014 a family memory that talks back. An Alexa+ MCP server (Streamable HTTP) for family voice journaling, kids' speaking practice and cross-generational story threads.",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "NODE_OPTIONS=--no-warnings tsx watch src/server.ts",
-    "start": "NODE_OPTIONS=--no-warnings tsx src/server.ts",
+    "dev": "node --no-warnings --watch --import tsx src/server.ts",
+    "start": "node --no-warnings --import tsx src/server.ts",
     "build": "tsc",
-    "seed": "NODE_OPTIONS=--no-warnings tsx scripts/seed.ts",
-    "test:e2e": "NODE_OPTIONS=--no-warnings tsx scripts/e2e.ts",
+    "seed": "node --no-warnings --import tsx scripts/seed.ts",
+    "test:e2e": "node --no-warnings --import tsx scripts/e2e.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

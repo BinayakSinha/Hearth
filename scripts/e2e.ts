@@ -9,7 +9,7 @@ const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
 const { execSync } = await import("node:child_process");
 
-execSync("tsx scripts/seed.ts", { env: { ...process.env, HEARTH_DB: "data/e2e.db" }, stdio: "inherit" });
+execSync("node --no-warnings --import tsx scripts/seed.ts", { env: { ...process.env, HEARTH_DB: "data/e2e.db" }, stdio: "inherit" });
 const { app } = await import("../src/server.js");
 const listener = app.listen(0);
 await new Promise((r) => listener.once("listening", r));
