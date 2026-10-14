@@ -39,7 +39,7 @@ function canSee(viewer: Member, entry: Entry): boolean {
 // ───────────────────────────── members ─────────────────────────────
 
 export function registerMember(input: {
-  name: string; role: Role; age?: number | null; relation?: string | null; is_parent?: boolean;
+  name: string; role: Role; age?: number | null; relation?: string | null; is_parent?: boolean; photo?: string | null;
 }): Member {
   if (findMember(input.name)) throw new HearthError(`${input.name} is already part of the family.`);
   return insertMember({
@@ -48,6 +48,7 @@ export function registerMember(input: {
     age: input.age ?? null,
     relation: input.relation?.trim() || null,
     is_parent: input.is_parent ? 1 : 0,
+    photo: input.photo ?? null,
   });
 }
 
@@ -55,8 +56,10 @@ export function familyOverview() {
   return allMembers().map((m) => {
     const entries = entriesFor(m.id);
     return {
-      name: m.name, role: m.role, age: m.age, called: m.relation, is_parent: !!m.is_parent,
+      name: m.name, role: m.role, age: m.age, called: m.relation, is_parent: !!m.is_parent, photo: m.photo,
       entries: entries.length,
+      week_entries: entries.filter((e) => Date.parse(e.created_at) >= Date.now() - 7 * DAY).length,
+      waiting: pendingThreadsFor(m.id).length,
       streak_days: streak(entries),
       last_entry: entries.at(-1) ? fmtDate(entries.at(-1)!.created_at) : null,
     };
@@ -86,7 +89,7 @@ export function startSession(name: string) {
     m.role === "child"
       ? `Hi ${m.name}! Ready to tell me about your day?${s > 1 ? ` That's ${s} days in a row — amazing!` : ""}`
       : m.role === "elder"
-        ? `Namaste ${m.name}. I've been looking forward to today's story.`
+        ? `Hello ${m.name}. I've been looking forward to today's story.`
         : `Hi ${m.name}. Quick check-in?`;
   return {
     member: { name: m.name, role: m.role, age: m.age, called: m.relation },
@@ -111,7 +114,7 @@ export function nextPrompt(name: string) {
     return {
       prompt: pick.prompt,
       thread_id: pick.id,
-      source: pick.kind === "care_nudge" ? "family care nudge" : `story thread from ${from.name}`,
+      source: pick.kind === "care_nudge" ? "family care nudge" : `story thread from ${from.name}${from.relation && from.relation !== from.name ? ` (${from.relation})` : ""}`,
       chapter: null as string | null,
       style_guide: STYLE_GUIDE[m.role],
       instructions: "Read the prompt aloud. Pass thread_id to save_journal_entry with the answer.",
@@ -233,7 +236,7 @@ ${careAbout ? `- care: the child mentioned ${careAbout.name} may not be feeling 
   if (careAbout && !out.care) {
     out.care = {
       about: careAbout.name,
-      nudge: `Small nudge: it might be a good day to check in on ${careAbout.name} — maybe offer a cup of chai or take something off their plate tonight.`,
+      nudge: `Small nudge: it might be a good day to check in on ${careAbout.name} — maybe make them a cup of tea or take something off their plate tonight.`,
     };
   }
   return out;
@@ -483,27 +486,111 @@ Plain spoken English, no stage directions, no emojis, under 380 words. Return {"
   return { generated_with: ai ? "bedrock" : "template", period_days: days, segments, word_of_the_week: kidWords, script };
 }
 
-/** Everything the parent dashboard shows, in one call. */
+const childFirstAndLatest = (k: Member) => {
+  const es = entriesFor(k.id);
+  const latest = [...es].reverse().find((e) => e.word_count >= 15) ?? es.at(-1);
+  return {
+    first_answer: es[0] ? { date: fmtDate(es[0].created_at), text: es[0].transcript, words: es[0].word_count } : null,
+    latest_answer: latest ? { date: fmtDate(latest.created_at), text: latest.transcript, words: latest.word_count } : null,
+  };
+};
+
+/** Everything the family dashboard's arc shows, in one call. Children can't open the dashboard. */
 export function dashboard(viewerName: string) {
   const viewer = requireMember(viewerName);
-  if (!viewer.is_parent) throw new HearthError("The family dashboard is for parents.");
+  if (viewer.role === "child") throw new HearthError("The family dashboard is for the grown-ups.");
   const members = allMembers();
-  const timeline = (allSharedEntries().filter((e) => canSee(viewer, e)) as Entry[])
-    .slice(-40)
+  const weekAgo = new Date(Date.now() - 7 * DAY).toISOString();
+  const timeline = sharedEntriesSince(weekAgo)
+    .filter((e) => canSee(viewer, e))
     .reverse()
     .map((e) => {
       const a = memberById(e.member_id);
-      return { id: e.id, date: fmtDate(e.created_at), at: e.created_at, who: a.name, role: a.role, summary: e.summary, mood: e.mood, topics: parse<string[]>(e.topics), chapter: e.chapter };
+      return { id: e.id, date: fmtDate(e.created_at), at: e.created_at, who: a.name, role: a.role, summary: e.summary, text: e.transcript, mood: e.mood, chapter: e.chapter };
     });
-  const kids = members.filter((m) => m.role === "child").map((k) => {
-    const es = entriesFor(k.id);
-    const latest = [...es].reverse().find((e) => e.word_count >= 15) ?? es.at(-1);
+  const kids = viewer.is_parent
+    ? members.filter((m) => m.role === "child").map((k) => ({ ...languageProgress(k.name, viewer.name), ...childFirstAndLatest(k) }))
+    : [];
+  const recentThreads = (db.prepare("SELECT * FROM threads WHERE created_at >= ? AND status != 'superseded' ORDER BY created_at").all(
+    new Date(Date.now() - 21 * DAY).toISOString(),
+  ) as unknown as Thread[]).map((t) => ({
+    id: t.id, kind: t.kind, status: t.status,
+    from: t.kind === "care_nudge" ? null : memberById(t.from_member_id).name, // care nudges never show their source
+    to: memberById(t.to_member_id).name,
+  }));
+  return {
+    viewer: viewer.name,
+    viewers: members.filter((m) => m.role !== "child").map((m) => m.name),
+    family: familyOverview(),
+    week: { stories: sharedEntriesSince(weekAgo).length, waiting: recentThreads.filter((t) => t.status === "pending").length },
+    kids, threads: recentThreads, timeline,
+  };
+}
+
+/** One member's journal as `viewer` is allowed to see it — the panel under the arc. */
+export function memberJournal(viewerName: string, name: string) {
+  const viewer = requireMember(viewerName);
+  const m = requireMember(name);
+  const self = viewer.id === m.id;
+  const person = { name: m.name, called: m.relation, role: m.role, age: m.age, photo: m.photo };
+  const mode = m.role === "child" ? "Speaking practice" : m.role === "elder" ? "Memoir" : "Daily log";
+  if (m.role === "child" && !viewer.is_parent && !self) {
+    return { person, mode, locked: true, reason: `Only ${m.name}'s parents can open ${m.name}'s journal.` };
+  }
+  const all = entriesFor(m.id);
+  const weekAgo = Date.now() - 7 * DAY;
+  const entries = [...all].reverse().slice(0, 12).map((e) =>
+    canSee(viewer, e)
+      ? { id: e.id, date: fmtDate(e.created_at), text: e.transcript, mood: e.mood, chapter: e.chapter, prompt: e.prompt, private: !!e.private }
+      : { id: e.id, date: fmtDate(e.created_at), hidden: true as const },
+  );
+  const waiting = pendingThreadsFor(m.id).map((t) =>
+    t.kind === "care_nudge" && !self
+      ? { kind: t.kind, hidden: true as const }
+      : { kind: t.kind, from: t.kind === "care_nudge" ? null : memberById(t.from_member_id).name, prompt: t.prompt },
+  );
+  const base = { person, mode, locked: false, streak_days: streak(all), entries, waiting };
+
+  if (m.role === "child") {
+    const p = languageProgress(m.name, self ? m.name : viewer.name);
     return {
-      ...languageProgress(k.name, viewer.name),
-      first_answer: es[0] ? { date: fmtDate(es[0].created_at), text: es[0].transcript, words: es[0].word_count } : null,
-      latest_answer: latest ? { date: fmtDate(latest.created_at), text: latest.transcript, words: latest.word_count } : null,
+      ...base,
+      stats: [
+        { value: describeTimes(p.sentence_length_change_pct), label: "longer sentences than week one" },
+        { value: String(p.vocabulary_size), label: "different words used" },
+        { value: `${p.streak_days} ${p.streak_days === 1 ? "day" : "days"}`, label: "practice streak" },
+      ],
+      progress: { weekly: p.weekly, recent_new_words: p.recent_new_words, note: p.note },
+      ...childFirstAndLatest(m),
     };
-  });
-  const elders = members.filter((m) => m.role === "elder").map((e) => ({ name: e.name, called: e.relation, chapters: memoirProgress(e) }));
-  return { viewer: viewer.name, family: familyOverview(), kids, elders, threads: listThreads(), timeline };
+  }
+  if (m.role === "elder") {
+    const chapters = memoirProgress(m);
+    return {
+      ...base,
+      stats: [
+        { value: String(all.length), label: "stories told" },
+        { value: `${chapters.filter((c) => c.questions && c.stories > 0).length} of ${MEMOIR.length}`, label: "chapters started" },
+        { value: String(all.filter((e) => e.chapter === "Talks with the grandchildren").length), label: "talks with grandchildren" },
+      ],
+      chapters,
+    };
+  }
+  return {
+    ...base,
+    stats: [
+      { value: String(all.filter((e) => Date.parse(e.created_at) >= weekAgo).length), label: "check-ins this week" },
+      base.streak_days > 1
+        ? { value: `${base.streak_days} days`, label: "streak" }
+        : { value: all.length ? fmtDate(all.at(-1)!.created_at).replace(/^\w+,\s*/, "") : "None yet", label: "last check-in" },
+      { value: String(all.filter((e) => e.private).length), label: "private entries" },
+    ],
+    // Patterns are personal: only the person themselves sees what Hearth noticed.
+    noticed: self ? adultPattern(m) : null,
+  };
+}
+
+function describeTimes(pct: number): string {
+  if (pct >= 100) return `${round(1 + pct / 100)}×`;
+  return `${pct > 0 ? "+" : ""}${pct}%`;
 }

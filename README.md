@@ -12,14 +12,18 @@ Hearth turns Alexa+ into the family's shared journal. Everyone in the house talk
 
 **The part no single-user journal can do — Family Threads.** Hearth links entries across generations:
 
-- Dadu tells Alexa about learning to ride his uncle's bicycle in 1968 → that evening, Aarav's question is *"Dadu told me a story… have you ever done anything like that?"*
-- Aarav says he can ride without training wheels → Dadu's next question is about it.
-- Aarav mentions Mum looked tired → Papa gets a gentle nudge to check in on her. The nudge never reveals who said what.
-- Sunday evening: **Family Radio**, a 3-minute spoken episode of the family's week — a highlight for each person, the kids' Word of the Week, a moment from Dadu's memoir.
+- Gran tells Alexa about learning to ride her brother's bicycle in 1955 → that evening, Leo's question is *"Gran told me a story… have you ever done anything like that?"*
+- Leo says he can ride without training wheels → Gran's next question is about it.
+- Leo mentions Mum looked tired → Dad gets a gentle nudge to check in on her. The nudge never reveals who said what.
+- Sunday evening: **Family Radio**, a 3-minute spoken episode of the family's week — a highlight for each person, the kids' Word of the Week, a moment from Gran's memoir.
 
 Alexa+ is the only assistant that's already in the room with the whole family. Hearth is built for that.
 
-![Parent dashboard](docs/dashboard.png)
+![Family dashboard](docs/dashboard.png)
+
+The dashboard seats the family on an arc around the hearth. Lines show stories passing between people (dashed ones are care nudges, which never show who triggered them); click someone to open their journal underneath. What each viewer sees follows the same privacy rules as Alexa: only parents can open a child's journal, private entries stay private, and personal patterns are shown only to the person themselves.
+
+> Demo photos are stock placeholders — replace them with licensed or your own photos before publishing.
 
 ## How it works
 
@@ -47,8 +51,8 @@ Alexa+ is the only assistant that's already in the room with the whole family. H
 | `start_journal_session` | "Alexa, open my Hearth journal" |
 | `get_journal_prompt` | (Alexa asks today's question — family threads first) |
 | `save_journal_entry` | (after they answer; returns the recast, follow-up, pattern or memoir chapter) |
-| `get_kid_speaking_progress` | "How's Aarav's speaking coming along?" (parents only) |
-| `recall_family_memory` | "When is the plumber coming?" · "What did Dadu say about his village?" |
+| `get_kid_speaking_progress` | "How's Leo's speaking coming along?" (parents only) |
+| `recall_family_memory` | "When is the plumber coming?" · "What did Gran say about the farm?" |
 | `play_family_radio` | "Alexa, play Family Radio" |
 | `get_family_threads` | "Is there a story waiting for me?" |
 | `manage_family_members` | "Add Meera to Hearth, she's 5" |
@@ -61,7 +65,7 @@ Requires Node 22.13+.
 npm install
 npm run seed        # three weeks of history for the demo family (wipes the database)
 npm start           # MCP at http://localhost:8787/mcp, dashboard at http://localhost:8787/
-npm run test:e2e    # 15 checks over real Streamable HTTP, using its own database
+npm run test:e2e    # 17 checks over real Streamable HTTP, using its own database
 ```
 
 Inspect the tools interactively with the MCP Inspector: `npx @modelcontextprotocol/inspector`, transport **Streamable HTTP**, URL `http://localhost:8787/mcp`.
@@ -117,7 +121,7 @@ src/prompts.ts    question banks, memoir chapters, per-role style guides for Ale
 src/db.ts         SQLite schema and queries
 scripts/seed.ts   the demo family's three weeks of history
 scripts/e2e.ts    end-to-end MCP test
-public/           parent dashboard
+public/           family dashboard (photos in public/photos)
 docs/PLAN.md      build plan and demo-video script
 ```
 

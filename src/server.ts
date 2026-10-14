@@ -14,7 +14,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
-  HearthError, dashboard, familyOverview, familyRadio, languageProgress, listThreads, nextPrompt,
+  HearthError, dashboard, memberJournal, familyOverview, familyRadio, languageProgress, listThreads, nextPrompt,
   recall, registerMember, saveEntry, startSession,
 } from "./memory.js";
 import { llmLabel } from "./llm.js";
@@ -236,6 +236,9 @@ const apiError = (res: Response, err: unknown) =>
 
 app.get("/api/dashboard", auth, (req, res) => {
   try { res.json(dashboard(String(req.query.viewer ?? ""))); } catch (e) { apiError(res, e); }
+});
+app.get("/api/journal/:name", auth, (req, res) => {
+  try { res.json(memberJournal(String(req.query.viewer ?? ""), String(req.params.name))); } catch (e) { apiError(res, e); }
 });
 app.get("/api/family", auth, (_req, res) => res.json(familyOverview()));
 app.get("/api/radio", auth, async (req, res) => {

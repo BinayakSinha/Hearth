@@ -13,6 +13,7 @@ export interface Member {
   age: number | null;
   relation: string | null; // e.g. "grandfather", "mother" — used in prompts ("Dadu told me…")
   is_parent: number; // 1 = can see children's journals and the progress dashboard
+  photo: string | null; // URL path of their bubble photo, e.g. "photos/leo.jpg"
 }
 
 export interface Entry {
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS members (
   role TEXT NOT NULL CHECK (role IN ('child','adult','elder')),
   age INTEGER,
   relation TEXT,
-  is_parent INTEGER NOT NULL DEFAULT 0
+  is_parent INTEGER NOT NULL DEFAULT 0,
+  photo TEXT
 );
 CREATE TABLE IF NOT EXISTS entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,12 +100,18 @@ CREATE INDEX IF NOT EXISTS idx_entries_member ON entries(member_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_threads_to ON threads(to_member_id, status);
 `);
 
+// Older databases: add the photo column if it's missing.
+if (!(db.prepare("PRAGMA table_info(members)").all() as { name: string }[]).some((c) => c.name === "photo")) {
+  db.exec("ALTER TABLE members ADD COLUMN photo TEXT");
+}
+
 export const nowIso = () => new Date().toISOString();
 
+/** Finds a member by first name, or by what the family calls them ("Gran", "Mum"). */
 export function findMember(name: string): Member | undefined {
-  return db.prepare("SELECT * FROM members WHERE name = ? COLLATE NOCASE").get(name.trim()) as
-    | Member
-    | undefined;
+  const n = name.trim();
+  return (db.prepare("SELECT * FROM members WHERE name = ? COLLATE NOCASE").get(n) ??
+    db.prepare("SELECT * FROM members WHERE relation = ? COLLATE NOCASE").get(n)) as Member | undefined;
 }
 
 export function allMembers(): Member[] {
@@ -116,8 +124,8 @@ export function memberById(id: number): Member {
 
 export function insertMember(m: Omit<Member, "id">): Member {
   db.prepare(
-    "INSERT INTO members (name, role, age, relation, is_parent) VALUES (?, ?, ?, ?, ?)",
-  ).run(m.name, m.role, m.age, m.relation, m.is_parent);
+    "INSERT INTO members (name, role, age, relation, is_parent, photo) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(m.name, m.role, m.age, m.relation, m.is_parent, m.photo);
   return findMember(m.name)!;
 }
 

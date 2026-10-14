@@ -4,7 +4,7 @@ Deadline: **Friday 23 October 2026** (Devpost). Judging 9–20 November.
 
 ## Where it stands (Wed 14 Oct)
 
-Done and tested (15 end-to-end checks over Streamable HTTP):
+Done and tested (17 end-to-end checks over Streamable HTTP):
 - MCP server, 8 tools, protocol 2025-11-25, stateless Streamable HTTP
 - Kid speaking practice: recast + follow-up, sentence length, vocabulary, new words
 - Adult logs with pattern detection; memoir chapters for grandparents
@@ -12,7 +12,7 @@ Done and tested (15 end-to-end checks over Streamable HTTP):
 - Privacy rules (kids' journals, private entries, anonymous nudges)
 - Family Radio weekly script
 - Bedrock integration with offline fallback
-- Seeded demo family (the Sharmas) and the parent dashboard
+- Seeded demo family (the Hales) and the family dashboard: photo arc, story lines, journal panel
 
 ## Remaining days
 
@@ -32,19 +32,19 @@ Done and tested (15 end-to-end checks over Streamable HTTP):
 
 ## Demo video (about 3 minutes)
 
-**0:00 – 0:20 · The hook.** Dadu's voice over a photo: the bicycle story. Then: "Stories like this disappear. Kids' first words go unwritten. Busy parents forget their own weeks. Hearth is the family's memory — and it lives where the whole family already is."
+**0:00 – 0:20 · The hook.** Gran's voice over a photo: the bicycle story. Then: "Stories like this disappear. Kids' first words go unwritten. Busy parents forget their own weeks. Hearth is the family's memory — and it lives where the whole family already is."
 
-**0:20 – 1:00 · Aarav, speaking practice (live, on device).**
-- "Alexa, open Hearth for Aarav." → greeting with his streak.
-- Alexa asks Dadu's bicycle question (the family thread).
-- Aarav answers in a short sentence → Alexa recasts it and asks a follow-up. Point out: it never corrects him, it models richer language.
+**0:20 – 1:00 · Leo, speaking practice (live, on device).**
+- "Alexa, open Hearth for Leo." → greeting with his streak.
+- Alexa asks Gran's bicycle question (the family thread).
+- Leo answers in a short sentence → Alexa recasts it and asks a follow-up. Point out: it never corrects him, it models richer language.
 
 **1:00 – 1:30 · The threads close the loop.**
-- Cut to Dadu: Alexa asks him about Aarav riding without training wheels. Dadu answers.
-- Aarav mentions "Mum looked tired" → cut to Rohan getting a care nudge. Caption: *"It never says who said it."*
+- Cut to Gran: Alexa asks her about Leo riding without training wheels. Gran answers.
+- Leo mentions "Mum looked tired" → cut to Marcus getting a care nudge. Caption: *"It never says who said it."*
 
 **1:30 – 2:10 · The parent view.**
-- "Alexa, how's Aarav's speaking coming along?" → spoken answer.
+- "Alexa, how's Leo's speaking coming along?" → spoken answer.
 - Dashboard: first answer ("We played. It was fun.") next to the latest one; sentence length ×4; new words like *germinating* and *extraordinary*. Show the "not a clinical assessment" line.
 
 **2:10 – 2:40 · Family Radio.** "Alexa, play Family Radio." Let it play over shots of the family.

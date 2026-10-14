@@ -6,241 +6,341 @@
 <title>Hearth · Family memory</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;1,7..72,400&display=swap" rel="stylesheet">
 <style>
 :root {
-  --paper: #F4F6FA;
-  --surface: #FFFFFF;
-  --ink: #1F2A44;
-  --ink-soft: #55607A;
-  --rule: #DDE2EC;
-  --lamp: #E8A317;
-  --lamp-wash: #FFF4DA;
-  --aarav: #D9940F;
-  --priya: #3B6EA8;
-  --rohan: #4E7D5B;
-  --dadu: #A04E6E;
-  --focus: #3B6EA8;
-  color-scheme: light;
+  --paper: #F7F5FA; --surface: #FFFFFF; --ink: #2A2440; --ink-soft: #6B6580; --rule: #E6E1EE;
+  --hearth: #F2A33A; --hearth-wash: #FFF1DC; --hearth-ink: #6A4108;
+  --leo: #F2A33A; --amara: #4C8BD6; --marcus: #3F9C7A; --rose: #D9708F; --finn: #8B7BD8;
+  --focus: #4C8BD6; color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #131A2A; --surface: #1B2338; --ink: #E9ECF4; --ink-soft: #A3ACC2; --rule: #2C3650;
-    --lamp: #F2B53A; --lamp-wash: #2B2716; --aarav: #F2B53A; --priya: #7FA8DC; --rohan: #84B793; --dadu: #D58AA6; --focus: #7FA8DC;
-    color-scheme: dark;
+    --paper: #17142A; --surface: #221E38; --ink: #EEEAF7; --ink-soft: #ABA4C2; --rule: #342E52;
+    --hearth-wash: #3A2C14; --hearth-ink: #FFD9A0; --focus: #8DB6EA; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #131A2A; --surface: #1B2338; --ink: #E9ECF4; --ink-soft: #A3ACC2; --rule: #2C3650;
-  --lamp: #F2B53A; --lamp-wash: #2B2716; --aarav: #F2B53A; --priya: #7FA8DC; --rohan: #84B793; --dadu: #D58AA6; --focus: #7FA8DC;
-  color-scheme: dark;
+  --paper: #17142A; --surface: #221E38; --ink: #EEEAF7; --ink-soft: #ABA4C2; --rule: #342E52;
+  --hearth-wash: #3A2C14; --hearth-ink: #FFD9A0; --focus: #8DB6EA; color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--paper); color: var(--ink);
-  font: 400 16px/1.55 Figtree, system-ui, sans-serif;
-}
-:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
-.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
-@media (max-width: 600px) { .wrap { padding: 0 16px; } }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 16px/1.55 Fredoka, system-ui, sans-serif; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 8px; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+@media (max-width: 640px) { .wrap { padding: 0 16px; } }
+button, select { font: inherit; color: var(--ink); background: var(--surface); border: 1.5px solid var(--rule); border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+button:hover, select:hover { border-color: var(--ink-soft); }
+.said { font-family: Literata, Georgia, serif; }
 
-/* header */
-header.top { display: flex; align-items: center; gap: 16px; padding: 20px 0; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; margin-right: auto; }
+header.top { display: flex; align-items: center; gap: 12px; padding: 18px 0 0; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 22px; margin-right: auto; }
 .brand svg { width: 28px; height: 28px; }
-.viewer { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 14px; }
-select, button {
-  font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule);
-  border-radius: 8px; padding: 8px 12px; cursor: pointer;
-}
-button.primary { background: var(--lamp); border-color: var(--lamp); color: #1F2A44; font-weight: 600; }
-button.primary:hover { filter: brightness(1.05); }
+.viewer { font-size: 14px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
 
-/* hero: the child's own words, growing */
-.growth { padding: 40px 0 48px; border-bottom: 1px solid var(--rule); }
-.growth h1 { font-size: 15px; font-weight: 600; color: var(--ink-soft); margin: 0 0 24px; }
-.answers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 32px; align-items: end; }
-@media (max-width: 760px) { .answers { grid-template-columns: 1fr; gap: 20px; } }
-.answer q { quotes: none; font-family: Literata, Georgia, serif; display: block; }
-.answer.then q { font-size: 20px; line-height: 1.4; color: var(--ink-soft); }
-.answer.now q { font-size: clamp(24px, 3.4vw, 36px); line-height: 1.32; font-weight: 400; max-width: 30ch; }
-.answer.now q::first-letter { color: var(--aarav); }
-.answer .when { font-size: 14px; color: var(--ink-soft); margin-top: 10px; }
-.answer.now .when strong { color: var(--ink); }
-.facts { display: flex; flex-wrap: wrap; gap: 12px 40px; margin-top: 36px; }
-.fact b { display: block; font-size: 28px; font-weight: 700; line-height: 1.1; }
-.fact span { font-size: 14px; color: var(--ink-soft); }
-.weeks { display: flex; align-items: flex-end; gap: 10px; height: 64px; margin-left: auto; padding-bottom: 20px; box-sizing: content-box; }
-.weeks div { width: 40px; background: var(--aarav); border-radius: 4px 4px 0 0; opacity: .85; position: relative; }
-.weeks div span { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
-.newwords { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.newwords > span:first-child { font-size: 14px; color: var(--ink-soft); margin-right: 4px; }
-.word { font-family: Literata, Georgia, serif; font-style: italic; background: var(--lamp-wash); padding: 2px 10px; border-radius: 999px; }
-.disclaimer { font-size: 13px; color: var(--ink-soft); margin-top: 20px; }
+/* the arc */
+.stage { position: relative; margin: 0 auto; }
+.stage svg.lines { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.lines path { fill: none; transition: opacity .3s; }
+.member { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; background: none; border: 0; padding: 0; border-radius: 50%; }
+.member .ph { border-radius: 50%; padding: 4px; background: var(--c); transition: transform .25s ease, opacity .3s; position: relative; }
+.member img, .member .ini { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid var(--paper); background: var(--surface); }
+.member .ini { display: grid; place-items: center; font-weight: 600; font-size: 28px; color: var(--c); }
+.member:hover .ph { transform: scale(1.06); }
+.member .nm { margin-top: 8px; font-weight: 500; font-size: 15px; white-space: nowrap; }
+.member .cl { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+.member .badge { position: absolute; top: 2px; right: 2px; min-width: 24px; height: 24px; border-radius: 12px; background: var(--hearth); color: #3B2404; font-size: 13px; font-weight: 600; display: grid; place-items: center; border: 2px solid var(--paper); padding: 0 6px; }
+.member[aria-pressed="true"] .ph { transform: scale(1.1); box-shadow: 0 0 0 4px var(--paper), 0 0 0 7px var(--c); }
+.stage.focused .member[aria-pressed="false"]:not(.linked) .ph { opacity: .4; }
+.member.speaking .ph { animation: speak 1s ease-in-out infinite; }
+@keyframes speak { 50% { transform: scale(1.12); } }
+.center { position: absolute; transform: translateX(-50%); text-align: center; width: 300px; }
+.center .flame { width: 44px; height: 44px; margin: 0 auto 6px; display: block; }
+.center .week { color: var(--ink-soft); font-size: 15px; margin-bottom: 12px; }
+.play { background: var(--hearth); border-color: var(--hearth); color: #3B2404; font-weight: 500; padding: 10px 20px; display: inline-flex; align-items: center; gap: 8px; }
+.play:hover { border-color: var(--hearth); filter: brightness(1.05); }
+@media (max-width: 640px) { .center { width: 280px; } .center .flame { display: none; } .center .week { margin-bottom: 8px; } .member .cl { display: none; } .member .nm { font-size: 13px; margin-top: 4px; } .member .badge { min-width: 20px; height: 20px; font-size: 11px; } }
 
-/* sections */
-main.grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 48px; padding: 40px 0 64px; }
-@media (max-width: 860px) { main.grid { grid-template-columns: 1fr; gap: 40px; } }
-h2 { font-size: 20px; margin: 0 0 4px; }
-.sub { color: var(--ink-soft); font-size: 14px; margin: 0 0 20px; }
-
-/* threads: a line connecting two people */
-.thread { display: grid; grid-template-columns: 44px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--rule); }
-.thread:first-of-type { border-top: 0; }
-.link { display: flex; flex-direction: column; align-items: center; }
-.link .dot { width: 30px; height: 30px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
-.link .line { width: 2px; flex: 1; min-height: 14px; background: var(--rule); }
-.thread .who { font-size: 14px; color: var(--ink-soft); }
-.thread .who strong { color: var(--ink); font-weight: 600; }
-.thread p { margin: 4px 0 0; font-family: Literata, Georgia, serif; font-size: 16px; line-height: 1.6; }
-.status { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-left: 6px; }
-.status.pending { background: var(--lamp-wash); color: var(--ink); }
-.status.used { color: var(--ink-soft); border: 1px solid var(--rule); }
-
-/* memoir */
-.memoir { margin-bottom: 40px; }
-.chapter { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--rule); font-size: 15px; }
-.chapter .bar { grid-column: 1 / -1; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
-.chapter .bar i { display: block; height: 100%; background: var(--dadu); }
+/* the panel under the arc */
+.panel { background: var(--surface); border-radius: 28px 28px 0 0; margin-top: 28px; min-height: 60vh; padding: 28px 0 64px; }
+.ph-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.ph-head img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 3px solid var(--c); }
+.ph-head h2 { margin: 0; font-size: 26px; font-weight: 600; line-height: 1.1; }
+.ph-head .sub { color: var(--ink-soft); font-size: 14px; }
+.pill { display: inline-block; font-size: 13px; padding: 3px 12px; border-radius: 999px; background: var(--paper); color: var(--ink); }
+.ph-head .back { margin-left: auto; font-size: 14px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+.stat { background: var(--paper); border-radius: 18px; padding: 14px 18px; }
+.stat b { display: block; font-size: 28px; font-weight: 600; line-height: 1.15; color: var(--ink); }
+.stat span { font-size: 14px; color: var(--ink-soft); }
+@media (max-width: 640px) { .stats { gap: 8px; } .stat { padding: 10px 12px; } .stat b { font-size: 22px; } .stat span { font-size: 12px; } }
+.cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 40px; }
+@media (max-width: 860px) { .cols { grid-template-columns: 1fr; gap: 28px; } }
+h3 { font-size: 17px; font-weight: 500; margin: 0 0 12px; }
+.entry { position: relative; padding: 0 0 18px 22px; }
+.entry::before { content: ""; position: absolute; left: 0; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.entry::after { content: ""; position: absolute; left: 4px; top: 21px; bottom: 0; width: 2px; background: var(--rule); }
+.entry:last-child::after { display: none; }
+.entry .when { font-size: 13px; color: var(--ink-soft); }
+.entry .q { font-size: 13px; color: var(--ink-soft); font-style: italic; }
+.entry p { margin: 2px 0 0; font-size: 17px; line-height: 1.6; max-width: 62ch; }
+.entry.hidden p { font-family: inherit; font-size: 15px; color: var(--ink-soft); }
+.entry .mini { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; vertical-align: -6px; margin-right: 6px; }
+.box { background: var(--paper); border-radius: 20px; padding: 18px 20px; margin-bottom: 18px; }
+.box .lede { font-size: 14px; color: var(--ink-soft); margin-bottom: 8px; }
+.box p { margin: 0; }
+.waiting { background: var(--hearth-wash); }
+.waiting p { color: var(--ink); line-height: 1.6; }
+.waiting p + p { margin-top: 10px; }
+.words { display: flex; flex-wrap: wrap; gap: 8px; }
+.word { font-family: Literata, Georgia, serif; font-style: italic; padding: 3px 12px; border-radius: 999px; background: var(--surface); border: 1.5px dashed var(--c); }
+.then { font-size: 16px; color: var(--ink-soft); }
+.now { font-size: 20px; line-height: 1.45; margin-top: 10px; }
+.bars { display: flex; align-items: flex-end; gap: 10px; height: 70px; margin-top: 14px; padding-bottom: 20px; box-sizing: content-box; }
+.bars div { flex: 1; max-width: 48px; background: var(--c); border-radius: 8px 8px 3px 3px; position: relative; }
+.bars span { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
+.note { font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
+.chapter { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 8px 0; font-size: 15px; }
 .chapter small { color: var(--ink-soft); }
+.chapter .bar { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--surface); overflow: hidden; }
+.chapter .bar i { display: block; height: 100%; background: var(--c); border-radius: 4px; }
+.locked { text-align: center; padding: 40px 16px; color: var(--ink-soft); }
+.locked svg { width: 40px; height: 40px; margin-bottom: 8px; }
 
-/* timeline */
-.entry { padding: 12px 0 12px 16px; border-left: 3px solid var(--c, var(--rule)); margin-bottom: 10px; }
-.entry .meta { font-size: 13px; color: var(--ink-soft); }
-.entry .meta strong { color: var(--c); font-weight: 600; }
-.entry p { margin: 2px 0 0; font-size: 15px; }
-.family { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 20px; font-size: 14px; }
-.family span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; }
-
-/* radio dialog */
-dialog { border: 0; border-radius: 16px; padding: 0; max-width: 620px; width: calc(100% - 32px); background: var(--surface); color: var(--ink); }
-dialog::backdrop { background: rgba(19, 26, 42, .55); }
-.radio { padding: 28px 28px 24px; }
-.radio h3 { margin: 0 0 4px; font-size: 22px; }
-.radio .script { font-family: Literata, Georgia, serif; font-size: 17px; line-height: 1.7; max-height: 55vh; overflow: auto; margin: 16px 0; }
-.radio .script p { margin: 0 0 14px; }
+dialog { border: 0; border-radius: 28px; padding: 0; max-width: 640px; width: calc(100% - 32px); background: var(--surface); color: var(--ink); }
+dialog::backdrop { background: rgba(23, 20, 42, .5); }
+.radio { padding: 28px; }
+.radio h2 { margin: 0; font-size: 24px; font-weight: 600; }
+.radio .script { font-size: 18px; line-height: 1.7; max-height: 52vh; overflow: auto; margin: 16px 0; }
+.radio .script p { margin: 0 0 14px; transition: color .3s; color: var(--ink-soft); }
+.radio .script p.on { color: var(--ink); }
 .radio .row { display: flex; gap: 8px; justify-content: flex-end; }
-.error { padding: 40px 0; color: var(--ink-soft); }
-@media (prefers-reduced-motion: no-preference) {
-  .answer.now q { animation: rise .8s ease-out both; }
-  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-}
+@media (prefers-reduced-motion: reduce) { .member .ph, .member.speaking .ph { animation: none; transition: none; } .lines .dot { display: none; } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4c3 4 7 7 7 13a7 7 0 1 1-14 0c0-3 1.5-5 3-6.5 0 2.5 1 4 2.5 4.5C14 11 14 8 16 4z" fill="var(--lamp)"/><path d="M6 27h20" stroke="var(--ink)" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c3.5 4.5 8 8 8 14.5a8 8 0 1 1-16 0c0-3.5 1.7-5.8 3.5-7.4 0 2.8 1 4.4 2.8 5C13.6 10.5 13.8 7 16 3z" fill="var(--hearth)"/></svg>
       Hearth
     </div>
-    <label class="viewer">Viewing as
-      <select id="viewer"><option>Priya</option><option>Rohan</option></select>
-    </label>
-    <button class="primary" id="radioBtn" type="button">Play Family Radio</button>
+    <label class="viewer">Viewing as <select id="viewer"></select></label>
   </header>
+  <div class="stage" id="stage">
+    <svg class="lines" id="lines" aria-hidden="true"></svg>
+    <div class="center" id="center">
+      <svg class="flame" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c3.5 4.5 8 8 8 14.5a8 8 0 1 1-16 0c0-3.5 1.7-5.8 3.5-7.4 0 2.8 1 4.4 2.8 5C13.6 10.5 13.8 7 16 3z" fill="var(--hearth)"/></svg>
+      <div class="week" id="week"></div>
+      <button class="play" id="radioBtn" type="button"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg>Play Family Radio</button>
+    </div>
+  </div>
 </div>
 
-<section class="growth"><div class="wrap" id="growth"></div></section>
-
-<div class="wrap">
-  <main class="grid">
-    <section>
-      <h2>Family threads</h2>
-      <p class="sub">Stories one person tells become questions for someone else.</p>
-      <div id="threads"></div>
-    </section>
-    <section>
-      <div class="memoir" id="memoir"></div>
-      <h2>This week at home</h2>
-      <p class="sub">Shared entries only. Private ones stay with whoever said them.</p>
-      <div class="family" id="family"></div>
-      <div id="timeline"></div>
-    </section>
-  </main>
-</div>
+<section class="panel" id="panelWrap" aria-live="polite"><div class="wrap" id="panel"></div></section>
 
 <dialog id="radio" aria-labelledby="radioTitle">
   <div class="radio">
-    <h3 id="radioTitle">Family Radio</h3>
-    <div class="sub" id="radioSub"></div>
+    <h2 id="radioTitle">Family Radio</h2>
+    <div class="note" id="radioSub"></div>
     <div class="script" id="radioScript"></div>
     <div class="row">
-      <button type="button" id="speakBtn">Read aloud</button>
-      <button type="button" class="primary" id="closeRadio">Close</button>
+      <button type="button" id="speakBtn">Read it aloud</button>
+      <button type="button" id="closeRadio">Close</button>
     </div>
   </div>
 </dialog>
 
 <script>
-const COLORS = { Aarav: "var(--aarav)", Priya: "var(--priya)", Rohan: "var(--rohan)", Dadu: "var(--dadu)" };
-const color = (n) => COLORS[n] || "var(--ink-soft)";
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const PALETTE = ["var(--leo)", "var(--amara)", "var(--marcus)", "var(--rose)", "var(--finn)"];
+const NAMED = { Leo: "var(--leo)", Amara: "var(--amara)", Marcus: "var(--marcus)", Rose: "var(--rose)", Finn: "var(--finn)" };
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 
-let viewer = "Priya";
-try { viewer = localStorage.getItem("hearth.viewer") || viewer; } catch {}
-$("viewer").value = viewer;
+let data = null, viewer = store.get("hearth.viewer") || "Amara", selected = null;
+const colorOf = (name) => NAMED[name] || PALETTE[(data?.family.findIndex((m) => m.name === name) ?? 0) % PALETTE.length];
+const member = (name) => data.family.find((m) => m.name === name);
+const label = (m) => (m.called && m.called !== m.name ? m.called : "");
+const roleWord = { child: "Speaking practice", adult: "Daily log", elder: "Memoir" };
 
-function times(pct) {
-  if (pct >= 100) return `${Math.round((1 + pct / 100) * 10) / 10}×`;
-  return `${pct > 0 ? "+" : ""}${pct}%`;
+/* Seat the family: grandparents at the top of the arc, children beside them, parents next, others at the ends. */
+function seatingOrder(family) {
+  const rank = (m) => (m.role === "elder" ? 0 : m.role === "child" ? 1 : m.is_parent ? 2 : 3);
+  const sorted = [...family].sort((a, b) => rank(a) - rank(b));
+  const seats = [];
+  sorted.forEach((m, i) => (i % 2 === 0 ? seats.push(m) : seats.unshift(m)));
+  return seats;
 }
 
-function renderGrowth(k) {
-  if (!k) { $("growth").innerHTML = `<p class="error">Add a child to the family to see speaking practice here.</p>`; return; }
-  const max = Math.max(...k.weekly.map((w) => w.avg_words), 1);
-  $("growth").innerHTML = `
-    <h1>How ${esc(k.child)}'s answers have grown</h1>
-    <div class="answers">
-      ${k.first_answer ? `<div class="answer then"><q>${esc(k.first_answer.text)}</q><div class="when">${esc(k.first_answer.date)} · ${k.first_answer.words} words</div></div>` : ""}
-      ${k.latest_answer ? `<div class="answer now"><q>${esc(k.latest_answer.text)}</q><div class="when"><strong>${esc(k.latest_answer.date)}</strong> · ${k.latest_answer.words} words</div></div>` : ""}
-    </div>
-    <div class="facts">
-      <div class="fact"><b>${times(k.sentence_length_change_pct)}</b><span>longer sentences than week one</span></div>
-      <div class="fact"><b>${k.vocabulary_size}</b><span>different words used</span></div>
-      <div class="fact"><b>${k.streak_days} days</b><span>practice streak</span></div>
-      <div class="weeks" role="img" aria-label="Average words per answer by week: ${k.weekly.map((w) => `${w.week} ${w.avg_words}`).join(", ")}">
-        ${k.weekly.map((w) => `<div style="height:${Math.max(4, (w.avg_words / max) * 64)}px" title="Week of ${esc(w.week)}: ${w.avg_words} words per answer"><span>${esc((w.week.split(",")[1] || w.week).trim().replace(/(\w{3})\w*$/, "$1"))}</span></div>`).join("")}
-      </div>
-    </div>
-    ${k.recent_new_words.length ? `<div class="newwords"><span>New words lately</span>${k.recent_new_words.map((w) => `<span class="word">${esc(w)}</span>`).join("")}</div>` : ""}
-    <p class="disclaimer">${esc(k.note)}</p>`;
+let geom = null;
+function layout() {
+  const stage = $("stage");
+  const W = stage.parentElement.clientWidth - (innerWidth <= 640 ? 32 : 48);
+  const narrow = W < 600;
+  const scale = Math.max(0.62, Math.min(1, W / 1000));
+  const R = Math.min(W * 0.43, 360);
+  const top = 70 * scale;
+  const H = R + top + (narrow ? 130 : 30);
+  stage.style.width = W + "px";
+  stage.style.height = H + "px";
+  const cx = W / 2, cy = top + R;
+  const seats = seatingOrder(data.family);
+  const n = seats.length;
+  const spread = narrow ? 172 : 160;
+  const pos = {};
+  seats.forEach((m, i) => {
+    const a = (180 + (180 - spread) / 2 + (n === 1 ? spread / 2 : (i * spread) / (n - 1))) * Math.PI / 180;
+    const size = Math.round((70 + 8 * Math.min(m.week_entries, 5)) * scale);
+    pos[m.name] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a), size };
+  });
+  geom = { W, H, cx, cy, R, pos, narrow };
+
+  stage.querySelectorAll(".member").forEach((el) => el.remove());
+  for (const m of seats) {
+    const p = pos[m.name];
+    const b = document.createElement("button");
+    b.className = "member";
+    b.type = "button";
+    b.dataset.name = m.name;
+    b.style.left = p.x + "px";
+    b.style.top = p.y + "px";
+    b.style.setProperty("--c", colorOf(m.name));
+    b.setAttribute("aria-pressed", String(selected === m.name));
+    b.setAttribute("aria-label", `${m.name}${label(m) ? `, ${label(m)}` : ""}. ${m.week_entries} entries this week${m.waiting ? `, ${m.waiting} waiting` : ""}. Open journal`);
+    b.innerHTML = `<span class="ph" style="width:${p.size}px;height:${p.size}px">${m.photo ? `<img src="${esc(m.photo)}" alt="">` : `<span class="ini">${esc(m.name[0])}</span>`}${m.waiting ? `<span class="badge" aria-hidden="true">${m.waiting}</span>` : ""}</span>
+      <span class="nm">${esc(m.name)}</span>${label(m) ? `<span class="cl">${esc(label(m))}</span>` : ""}`;
+    b.style.transform = `translate(-50%, -${p.size / 2}px)`; // photo centre sits on the arc
+    b.addEventListener("click", () => select(selected === m.name ? null : m.name));
+    b.addEventListener("keydown", (e) => {
+      const i = seats.indexOf(m);
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        const next = seats[(i + (e.key === "ArrowRight" ? 1 : seats.length - 1)) % seats.length];
+        stage.querySelector(`.member[data-name="${next.name}"]`).focus();
+        e.preventDefault();
+      }
+    });
+    stage.appendChild(b);
+  }
+  const c = $("center");
+  c.style.left = cx + "px";
+  c.style.top = (narrow ? cy + 34 : cy - R * 0.6) + "px";
+  drawLines();
 }
 
-function renderThreads(threads) {
-  const rows = threads.filter((t) => t.status !== "superseded").slice(0, 8);
-  $("threads").innerHTML = rows.length ? rows.map((t) => `
-    <div class="thread">
-      <div class="link">
-        <div class="dot" style="background:${t.kind === "care_nudge" ? "var(--lamp)" : color(t.from)}">${t.kind === "care_nudge" ? "♥" : esc(t.from[0])}</div>
-        <div class="line"></div>
-        <div class="dot" style="background:${color(t.to)}">${esc(t.to[0])}</div>
-      </div>
-      <div>
-        <div class="who">${t.kind === "care_nudge" ? "Care nudge" : `From <strong>${esc(t.from)}</strong>`} for <strong>${esc(t.to)}</strong> · ${esc(t.created)}
-          <span class="status ${t.status}">${t.status === "pending" ? "Waiting" : "Answered"}</span></div>
-        <p>${esc(t.prompt)}</p>
-      </div>
-    </div>`).join("") : `<p class="sub">No threads yet. They appear once someone tells a story.</p>`;
+/* One curved line per pair of people who've passed stories; dashed lines from the hearth for care nudges. */
+function drawLines() {
+  const { cx, cy, R, pos } = geom;
+  const svg = $("lines");
+  svg.setAttribute("width", geom.W);
+  svg.setAttribute("height", geom.H);
+  const pairs = new Map();
+  for (const t of data.threads) {
+    if (t.kind !== "story_bridge" || !pos[t.from] || !pos[t.to]) continue;
+    const key = [t.from, t.to].sort().join("|");
+    const p = pairs.get(key) || { a: t.from, b: t.to, n: 0, pending: 0 };
+    p.n++;
+    if (t.status === "pending") p.pending++;
+    pairs.set(key, p);
+  }
+  const hx = cx, hy = geom.narrow ? cy - R * 0.3 : cy - R * 0.6 - 10;
+  // Faint guide arc the family sits on.
+  let html = `<path d="M${cx - R} ${cy} A${R} ${R} 0 0 1 ${cx + R} ${cy}" stroke="var(--rule)" stroke-width="2" stroke-dasharray="1 9" stroke-linecap="round"/>`;
+  let k = 0;
+  for (const p of pairs.values()) {
+    const A = pos[p.a], B = pos[p.b];
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+    const qx = mx + (hx - mx) * 0.55, qy = my + (cy - my) * 0.55;
+    const d = `M${A.x} ${A.y} Q${qx} ${qy} ${B.x} ${B.y}`;
+    const on = !selected || selected === p.a || selected === p.b;
+    html += `<path id="l${k}" d="${d}" stroke="${colorOf(p.a)}" stroke-width="${Math.min(2 + p.n, 6)}" stroke-linecap="round" opacity="${on ? 0.55 : 0.12}"/>`;
+    if (p.pending && on) html += `<circle class="dot" r="5" fill="var(--hearth)"><animateMotion dur="3.2s" repeatCount="indefinite"><mpath href="#l${k}"/></animateMotion></circle>`;
+    k++;
+  }
+  for (const t of data.threads) {
+    if (t.kind !== "care_nudge" || t.status !== "pending" || !pos[t.to]) continue;
+    const B = pos[t.to];
+    const on = !selected || selected === t.to;
+    html += `<path d="M${hx} ${hy} Q${(hx + B.x) / 2} ${hy} ${B.x} ${B.y}" stroke="var(--hearth)" stroke-width="2.5" stroke-dasharray="3 7" stroke-linecap="round" opacity="${on ? 0.8 : 0.15}"/>`;
+  }
+  svg.innerHTML = html;
 }
 
-function renderMemoir(elders) {
-  $("memoir").innerHTML = elders.map((e) => {
-    const total = e.chapters.reduce((s, c) => s + c.stories, 0);
-    return `<h2>${esc(e.called || e.name)}'s memoir</h2><p class="sub">${total} stories so far, one question a day.</p>
-      ${e.chapters.map((c) => `<div class="chapter"><span>${esc(c.chapter)}</span><small>${c.stories}${c.questions ? ` of ${c.questions}` : ""}</small>
-      <div class="bar"><i style="width:${c.questions ? Math.min(100, (c.stories / c.questions) * 100) : 100}%"></i></div></div>`).join("")}`;
-  }).join("");
+function select(name) {
+  selected = name;
+  history.replaceState(null, "", name ? `#${encodeURIComponent(name)}` : location.pathname);
+  $("stage").classList.toggle("focused", !!name);
+  // People who've passed stories to or from the selected person stay bright.
+  const linked = new Set(data.threads.filter((t) => t.kind === "story_bridge" && (t.from === name || t.to === name)).flatMap((t) => [t.from, t.to]));
+  document.querySelectorAll(".member").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.name === name));
+    b.classList.toggle("linked", linked.has(b.dataset.name));
+  });
+  drawLines();
+  name ? loadJournal(name) : renderFamilyWeek();
+  const top = $("panelWrap").getBoundingClientRect().top;
+  if (name && top > innerHeight * 0.7) $("panelWrap").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
-function renderTimeline(family, timeline) {
-  $("family").innerHTML = family.map((m) => `<span style="--c:${color(m.name)}">${esc(m.called && m.called !== m.name ? `${m.name} (${m.called})` : m.name)}</span>`).join("");
-  $("timeline").innerHTML = timeline.slice(0, 14).map((e) => `
-    <div class="entry" style="--c:${color(e.who)}">
-      <div class="meta"><strong>${esc(e.who)}</strong> · ${esc(e.date)}${e.chapter ? ` · ${esc(e.chapter)}` : ""}</div>
-      <p>${esc(e.summary.replace(/^[^:]{1,20}:\s*/, ""))}</p>
-    </div>`).join("");
+function renderFamilyWeek() {
+  const t = data.timeline;
+  $("panel").innerHTML = `
+    <div class="ph-head"><div><h2>This week at home</h2><div class="sub">Shared stories from the last seven days. Pick someone on the arc to open their journal.</div></div></div>
+    <div class="cols"><div>${t.length ? t.slice(0, 14).map((e) => {
+      const m = member(e.who);
+      return `<div class="entry" style="--c:${colorOf(e.who)}"><div class="when">${m?.photo ? `<img class="mini" src="${esc(m.photo)}" alt="">` : ""}${esc(e.who)} · ${esc(e.date)}</div><p class="said">${esc(e.text)}</p></div>`;
+    }).join("") : `<p class="sub">No stories yet this week. Say "Alexa, open Hearth" to tell the first one.</p>`}</div>
+    <div>${data.family.filter((m) => m.waiting).map((m) => `<div class="box waiting" style="--c:${colorOf(m.name)}"><div class="lede">Waiting for ${esc(m.name)}</div><p>${m.waiting} ${m.waiting === 1 ? "question" : "questions"} from the family, ready next time ${esc(m.name)} talks to Alexa.</p></div>`).join("")}</div></div>`;
+}
+
+async function loadJournal(name) {
+  const c = colorOf(name);
+  $("panel").innerHTML = `<p class="sub">Opening ${esc(name)}'s journal…</p>`;
+  try {
+    const r = await fetch(`api/journal/${encodeURIComponent(name)}?viewer=${encodeURIComponent(viewer)}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    if (selected !== name) return;
+    $("panel").innerHTML = journalHtml(j, c);
+    $("panel").querySelector(".back")?.addEventListener("click", () => select(null));
+  } catch (e) {
+    $("panel").innerHTML = `<p class="sub">Couldn't open ${esc(name)}'s journal: ${esc(e.message)}</p>`;
+  }
+}
+
+function journalHtml(j, c) {
+  const p = j.person;
+  const head = `<div class="ph-head" style="--c:${c}">
+      ${p.photo ? `<img src="${esc(p.photo)}" alt="">` : ""}
+      <div><h2>${esc(p.name)}${p.called && p.called !== p.name ? ` <span class="sub">· ${esc(p.called)}</span>` : ""}</h2>
+      <div class="sub"><span class="pill">${esc(j.mode)}</span>${!j.locked && j.streak_days > 1 ? ` &nbsp;${j.streak_days}-day streak` : ""}</div></div>
+      <button class="back" type="button">Show the whole family</button></div>`;
+  if (j.locked) {
+    return head + `<div class="locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><p>${esc(j.reason)}</p></div>`;
+  }
+  const stats = `<div class="stats">${j.stats.map((s) => `<div class="stat"><b>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("")}</div>`;
+  const entries = j.entries.map((e) => e.hidden
+    ? `<div class="entry hidden" style="--c:var(--rule)"><div class="when">${esc(e.date)}</div><p>A private entry. Only ${esc(p.name)} can read it.</p></div>`
+    : `<div class="entry" style="--c:${c}"><div class="when">${esc(e.date)}${e.chapter ? ` · ${esc(e.chapter)}` : ""}${e.private ? " · private" : ""}</div>${e.prompt && p.role !== "adult" ? `<div class="q">${esc(e.prompt.length > 120 ? e.prompt.slice(0, 117) + "…" : e.prompt)}</div>` : ""}<p class="said">${esc(e.text)}</p></div>`).join("");
+  const waiting = j.waiting.length ? `<div class="box waiting"><div class="lede">Waiting for ${esc(p.name)}</div>${j.waiting.map((w) => w.hidden
+    ? `<p>A private nudge for ${esc(p.name)}.</p>`
+    : `<p class="said">${w.from ? `<span class="sub">From ${esc(member(w.from)?.called || w.from)} · </span>` : ""}${esc(w.prompt)}</p>`).join("")}</div>` : "";
+  let side = waiting;
+  if (p.role === "child") {
+    const max = Math.max(...j.progress.weekly.map((w) => w.avg_words), 1);
+    side = `<div class="box" style="--c:${c}"><div class="lede">How ${esc(p.name)}'s answers have grown</div>
+        ${j.first_answer ? `<p class="said then">${esc(j.first_answer.text)} <span class="sub">(${esc(j.first_answer.date)})</span></p>` : ""}
+        ${j.latest_answer ? `<p class="said now">${esc(j.latest_answer.text)}</p>` : ""}
+        <div class="bars" role="img" aria-label="Average words per answer, week by week: ${j.progress.weekly.map((w) => w.avg_words).join(", ")}">${j.progress.weekly.map((w) => `<div style="height:${Math.max(6, (w.avg_words / max) * 70)}px"><span>${esc((w.week.split(",")[1] || w.week).trim())}</span></div>`).join("")}</div>
+        <div class="note">Average words per answer, week by week</div></div>
+      ${j.progress.recent_new_words.length ? `<div class="box" style="--c:${c}"><div class="lede">New words lately</div><div class="words">${j.progress.recent_new_words.map((w) => `<span class="word">${esc(w)}</span>`).join("")}</div></div>` : ""}
+      ${waiting}<p class="note">${esc(j.progress.note)}</p>`;
+  } else if (p.role === "elder") {
+    side = `<div class="box" style="--c:${c}"><div class="lede">${esc(p.called || p.name)}'s memoir</div>${j.chapters.map((ch) => `<div class="chapter"><span>${esc(ch.chapter)}</span><small>${ch.stories}${ch.questions ? ` of ${ch.questions}` : ""}</small><div class="bar"><i style="width:${ch.questions ? Math.min(100, (ch.stories / ch.questions) * 100) : 100}%"></i></div></div>`).join("")}</div>${waiting}`;
+  } else if (j.noticed) {
+    side = `<div class="box"><div class="lede">Hearth noticed</div><p class="said">${esc(j.noticed[0].toUpperCase() + j.noticed.slice(1))}</p></div>${waiting}`;
+  }
+  return head + stats + `<div class="cols"><div><h3>Journal</h3>${entries || `<p class="sub">Nothing here yet. Say "Alexa, open Hearth for ${esc(p.name)}" to start.</p>`}</div><div>${side}</div></div>`;
 }
 
 async function load() {
@@ -248,21 +348,22 @@ async function load() {
     const r = await fetch(`api/dashboard?viewer=${encodeURIComponent(viewer)}`);
     const d = await r.json();
     if (!r.ok) throw new Error(d.error);
-    renderGrowth(d.kids[0]);
-    renderThreads(d.threads);
-    renderMemoir(d.elders);
-    renderTimeline(d.family, d.timeline);
+    data = d;
+    $("viewer").innerHTML = d.viewers.map((v) => `<option ${v === viewer ? "selected" : ""}>${esc(v)}</option>`).join("");
+    $("week").textContent = `${d.week.stories} ${d.week.stories === 1 ? "story" : "stories"} this week${d.week.waiting ? ` · ${d.week.waiting} waiting` : ""}`;
+    layout();
+    const fromHash = decodeURIComponent(location.hash.slice(1));
+    select(member(fromHash) ? fromHash : selected && member(selected) ? selected : null);
   } catch (e) {
-    $("growth").innerHTML = `<p class="error">Couldn't load the family journal: ${esc(e.message)}. Check that the Hearth server is running and seeded (npm run seed).</p>`;
+    $("panel").innerHTML = `<p class="sub">Couldn't load the family journal: ${esc(e.message)}. Check the Hearth server is running and seeded (npm run seed).</p>`;
   }
 }
 
-$("viewer").addEventListener("change", (e) => {
-  viewer = e.target.value;
-  try { localStorage.setItem("hearth.viewer", viewer); } catch {}
-  load();
-});
+$("viewer").addEventListener("change", (e) => { viewer = e.target.value; store.set("hearth.viewer", viewer); load(); });
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => data && layout(), 120); });
 
+/* Family Radio: reads the episode paragraph by paragraph and lights up whoever is being talked about. */
+let radioParas = [];
 $("radioBtn").addEventListener("click", async () => {
   $("radioScript").innerHTML = "<p>Writing this week's episode…</p>";
   $("radioSub").textContent = "";
@@ -271,18 +372,34 @@ $("radioBtn").addEventListener("click", async () => {
     const r = await fetch(`api/radio?viewer=${encodeURIComponent(viewer)}`);
     const d = await r.json();
     if (!r.ok) throw new Error(d.error);
-    $("radioSub").textContent = `The last ${d.period_days} days, as Alexa will read it on Sunday evening.`;
-    $("radioScript").innerHTML = d.script.split(/\n+/).filter(Boolean).map((p) => `<p>${esc(p)}</p>`).join("");
+    radioParas = d.script.split(/\n+/).filter(Boolean);
+    $("radioSub").textContent = `The last ${d.period_days} days, as Alexa reads it on Sunday evening.`;
+    $("radioScript").innerHTML = radioParas.map((p) => `<p class="on">${esc(p)}</p>`).join("");
   } catch (e) {
-    $("radioScript").innerHTML = `<p>Couldn't write the episode: ${esc(e.message)}</p>`;
+    $("radioScript").innerHTML = `<p class="on">Couldn't make this week's episode: ${esc(e.message)}</p>`;
   }
 });
+function light(i) {
+  const ps = $("radioScript").querySelectorAll("p");
+  ps.forEach((p, j) => p.classList.toggle("on", i < 0 || j === i));
+  const text = i >= 0 ? radioParas[i] : "";
+  document.querySelectorAll(".member").forEach((b) => {
+    const m = member(b.dataset.name);
+    b.classList.toggle("speaking", !!text && (text.includes(m.name) || (m.called && text.includes(m.called))));
+  });
+}
 $("speakBtn").addEventListener("click", () => {
-  if (!("speechSynthesis" in window)) return;
+  if (!("speechSynthesis" in window) || !radioParas.length) return;
   speechSynthesis.cancel();
-  speechSynthesis.speak(new SpeechSynthesisUtterance($("radioScript").innerText));
+  radioParas.forEach((p, i) => {
+    const u = new SpeechSynthesisUtterance(p);
+    u.onstart = () => light(i);
+    if (i === radioParas.length - 1) u.onend = () => light(-1);
+    speechSynthesis.speak(u);
+  });
 });
-$("closeRadio").addEventListener("click", () => { speechSynthesis?.cancel(); $("radio").close(); });
+$("closeRadio").addEventListener("click", () => $("radio").close());
+$("radio").addEventListener("close", () => { if ("speechSynthesis" in window) speechSynthesis.cancel(); light(-1); });
 
 load();
 </script>
