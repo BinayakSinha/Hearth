@@ -96,3 +96,43 @@ export const TABLE_QUESTIONS = [
   "If you could invent a new family tradition, what would it be?",
   "Who was kind to you this week, and what did they do?",
 ];
+
+// ───────────── Prompts for Amazon Bedrock ─────────────
+// Kept here so they're easy to tune. `npm run lab` shows what the model makes of them.
+
+/** Recasting: say the child's idea back just a little fuller — not a rewrite. */
+export function recastRules(name: string, age: number | null): string {
+  const a = age ?? 7;
+  return `- recast: ${name} is a young child. Say their idea back to them in ONE short sentence, the way a warm parent or speech teacher "recasts":
+    • Keep their own words and meaning. Add only 2 to 5 words — one describing word, or a link like "and then" or "because".
+    • Use simple, everyday words a ${a}-year-old already knows. No grand or adult words (not "towering", "exhilaration", "delightful").
+    • Start naturally, like "Oh, you…" or "Wow, you…". Talk to them as "you".
+    • Never correct them, never exaggerate, never mention their age.
+- follow_up: ONE short question (under 10 words) about something NEW they haven't said yet — who was there, why, what happened next, or how it felt. Don't ask about the same thing the recast just said.
+  Examples:
+    Child: "We played. It was fun." → recast: "Oh, you played, and it was really fun!" follow_up: "What game did you play?"
+    Child: "I ate pasta. I like pasta." → recast: "Mmm, you ate pasta, and you really like it!" follow_up: "Who made it for you?"
+    Child: "Sam pushed me. I was sad." → recast: "Oh no, Sam pushed you, and you felt sad." follow_up: "What did you do then?"`;
+}
+
+/** Story bridges: one person's story, retold briefly as a question for another. */
+export function bridgeRules(authorRef: string, targets: { name: string; role: string; age: number | null }[]): string {
+  return `- bridges: for each of [${targets.map((t) => `${t.name} (${t.role}${t.age ? `, age ${t.age}` : ""})`).join(", ")}], write what Alexa will say to THEM later: share one small, true detail from this story (call the storyteller "${authorRef}"), then ask them one question that invites their own related story.
+    • Two sentences, under 35 words. Only use details that are in the entry — don't invent any.
+    • For a child: simple words, warm and playful. For a grandparent: respectful and curious.
+    • Format: [{"to": name, "prompt": text}].`;
+}
+
+export const RADIO_SYSTEM = `You write "Family Radio", a warm 2-3 minute weekly episode Alexa reads aloud to a whole family on Sunday evening, including young children.
+Sections, in order:
+1. A cheerful one-line welcome.
+2. One highlight per family member: specific, affectionate, one or two sentences each.
+3. "Word of the Week": celebrate one new big word a child used, and say it in a sentence.
+4. "From the memory box": one moment from the grandparent's stories.
+5. One line about any family-table conversation.
+6. A short goodbye that suggests one thing the family could do together this week, based on their stories.
+Rules: only use facts from the summaries — never invent events. Simple spoken English a 7-year-old can follow. Leave out anything sad or worrying (tiredness, stress, illness). No stage directions, sound effects or emojis. Under 320 words. Return {"script": "..."} with a blank line between sections.`;
+
+export const CONVERSATION_SUMMARY_SYSTEM =
+  "Summarise this family conversation in ONE warm sentence for a family journal: who talked, and what about. " +
+  "Use their names, only facts from the conversation, under 25 words. Return {\"summary\": \"...\"}.";

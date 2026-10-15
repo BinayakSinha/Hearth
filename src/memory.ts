@@ -16,9 +16,11 @@ import {
   type Entry, type Member, type Role, type Thread,
 } from "./db.js";
 import { hashPin, hasPin, pinMatches } from "./auth.js";
-import { analyze, bigWords, firstSentence, guessMood, properNouns, round, tokenize, topKeywords } from "./language.js";
+import { analyze, bigWords, firstSentence, guessMood, properNouns, round, simpleFollowUp, simpleRecast, tokenize, topKeywords } from "./language.js";
 import { completeJson, llmEnabled } from "./llm.js";
-import { MEMOIR, MEMOIR_FLAT, STYLE_GUIDE, TABLE_QUESTIONS, bankFor } from "./prompts.js";
+import {
+  CONVERSATION_SUMMARY_SYSTEM, MEMOIR, MEMOIR_FLAT, RADIO_SYSTEM, STYLE_GUIDE, TABLE_QUESTIONS, bankFor, bridgeRules, recastRules,
+} from "./prompts.js";
 import { careTarget, checkSafety, looksLikeSummary, okForChild, safetyReply } from "./safety.js";
 
 const TZ = process.env.HEARTH_TZ ?? "Europe/London";
@@ -235,15 +237,6 @@ interface Extraction {
   care?: { about: string; nudge: string } | null;
 }
 
-const KID_FOLLOWUPS = [
-  "What happened next?",
-  "Who else was there?",
-  "How did that make you feel?",
-  "Can you describe what it looked like?",
-  "What was the funniest part?",
-  "If you did it again, what would you do differently?",
-];
-
 /** Who should hear about this entry as a story bridge. */
 function bridgeTargets(author: Member, shareable: boolean, wordCount: number): Member[] {
   if (!shareable || wordCount < 12) return [];
@@ -263,9 +256,8 @@ Given one journal entry, return JSON with:
 - mood: one word or null.
 - topics: 1-4 short lowercase topic phrases.
 - people: names or relations mentioned.
-${author.role === "child" ? `- recast: the child is ${author.age ?? "young"}. Repeat their main idea back as ONE fuller, richer sentence (the "recasting" technique speech educators use): keep their meaning, add one or two descriptive words, never say they were wrong. Speak to them as "you".
-- follow_up: one short, open question about a specific detail they mentioned.` : ""}
-${targets.length ? `- bridges: for each of [${targets.map((t) => `${t.name} (${t.role}, age ${t.age ?? "?"})`).join(", ")}], write a prompt Alexa will ask THEM later, that shares a small, kind piece of this story (refer to the author as "${ref(author)}") and invites their own related memory. Age-appropriate, gentle, one or two sentences. Format: [{"to": name, "prompt": text}].` : ""}
+${author.role === "child" ? recastRules(author.name, author.age) : ""}
+${targets.length ? bridgeRules(ref(author), targets) : ""}
 ${careAbout ? `- care: the child mentioned ${careAbout.name} may be tired or unwell. Write {"about": "${careAbout.name}", "nudge": text} — a gentle suggestion for OTHER adults to check in on ${careAbout.name}. NEVER reveal a child said anything or quote them.` : ""}`,
         `${prompt ? `Question asked: ${prompt}\n` : ""}Entry by ${author.name}: ${text}`,
         700,
@@ -284,10 +276,12 @@ ${careAbout ? `- care: the child mentioned ${careAbout.name} may be tired or unw
     care: ai?.care ?? null,
   };
   if (author.role === "child") {
-    out.recast ??= metrics.word_count < 8
-      ? `Ooh — "${firstSentence(text)}" Tell me more so I can picture it!`
-      : `Wow, so ${firstSentence(text).replace(/^i /i, "you ").replace(/\bI\b/g, "you").replace(/\bmy\b/gi, "your")}`;
-    out.follow_up ??= KID_FOLLOWUPS[text.length % KID_FOLLOWUPS.length];
+    // Quality guard: a recast should be only a little longer than what the child said, in plain words.
+    const recastWords = out.recast ? tokenize(out.recast).length : 0;
+    if (out.recast && (recastWords > metrics.word_count + 14 || /year[- ]old|exhilarat/i.test(out.recast))) out.recast = undefined;
+    if (out.follow_up && tokenize(out.follow_up).length > 14) out.follow_up = undefined;
+    out.recast ??= simpleRecast(text);
+    out.follow_up ??= simpleFollowUp(text, text.length);
   }
   const have = new Set((out.bridges ?? []).map((b) => b.to.toLowerCase()));
   out.bridges = [...(out.bridges ?? [])];
@@ -633,9 +627,7 @@ export async function familyRadio(days = 7) {
     .join("\n");
   const ai = llmEnabled()
     ? await completeJson<{ script: string }>(
-        `You write "Family Radio", a warm 2-3 minute weekly audio episode Alexa reads to a family on Sunday evening.
-Sections: a cheerful intro, one highlight per family member (specific and affectionate), "Word of the Week" celebrating a new big word a child used, a "From the memory box" moment from the grandparent's memoir, a line about any family-table conversation, and a short outro that suggests one thing the family could do together this week based on their stories.
-Plain spoken English, no stage directions, no emojis, under 380 words. Return {"script": "..."}.`,
+        RADIO_SYSTEM,
         `This week's journal summaries:\n${material}\nFamily-table conversations: ${conversations.map((c) => c.summary).join(" ") || "none"}\nNew big words the kids used: ${kidWords.map((k) => `${k.name}: ${k.words.slice(0, 5).join(", ")}`).join("; ") || "none"}`,
         900,
       )
@@ -721,7 +713,7 @@ export async function saveConversation(input: {
 
   const ai = llmEnabled()
     ? await completeJson<{ summary: string }>(
-        "Summarise this family conversation in one warm sentence for a family journal. Name who talked and what about. Return {\"summary\": \"...\"}.",
+        CONVERSATION_SUMMARY_SYSTEM,
         `${input.prompt ? `Opener: ${input.prompt}\n` : ""}${turns.map((t) => `${t.speaker.name}: ${t.text}`).join("\n")}`,
         200,
       )

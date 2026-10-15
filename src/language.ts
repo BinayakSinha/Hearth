@@ -110,7 +110,7 @@ export function bigWords(fresh: string[], age: number | null, prompt: string | n
   const echoed = new Set(tokenize(prompt ?? ""));
   const limit = bigWordThreshold(age);
   return fresh.filter((w) => {
-    if (w.length < 4 || STOPWORDS.has(w) || names.has(w) || echoed.has(w)) return false;
+    if (w.length < 4 || STOPWORDS.has(w) || names.has(w) || echoed.has(w) || w in IRREGULAR) return false;
     const r = wordRank(w);
     if (r === undefined || r <= limit) return false;
     // Rare in film dialogue isn't the same as advanced: "blanket" and "cushions" are rare on
@@ -173,4 +173,52 @@ export function firstSentence(text: string, max = 160): string {
 export function round(n: number, d = 1): number {
   const f = 10 ** d;
   return Math.round(n * f) / f;
+}
+
+// ── Offline recasting ──
+// Children over-regularise irregular verbs ("I drawed"). A recast models the right form without
+// correcting them ("Oh, you drew a dinosaur!"). These aren't "big words" either.
+export const IRREGULAR: Record<string, string> = {
+  drawed: "drew", builded: "built", falled: "fell", goed: "went", runned: "ran", eated: "ate", buyed: "bought",
+  catched: "caught", teached: "taught", thinked: "thought", swimmed: "swam", maked: "made", sayed: "said",
+  comed: "came", gived: "gave", taked: "took", writed: "wrote", bringed: "brought", sleeped: "slept",
+  feeled: "felt", finded: "found", throwed: "threw", winned: "won", singed: "sang", breaked: "broke",
+  holded: "held", hided: "hid", readed: "read", seed: "saw", knowed: "knew", growed: "grew", blowed: "blew",
+  flied: "flew", sitted: "sat", standed: "stood", telled: "told", getted: "got", hitted: "hit", leaved: "left",
+};
+
+/** "We went to the park. I went on the big slide." → "Oh, you went to the park, and you went on the big slide!" */
+export function simpleRecast(text: string): string {
+  const parts = sentences(text).slice(0, 2).map((s) => {
+    let t = s.replace(/[.!?]+$/, "").trim();
+    t = t.replace(/\b([A-Za-z]+)\b/g, (w) => IRREGULAR[w.toLowerCase()] ?? w);
+    t = t
+      .replace(/^(me and|i and) /i, "you and ")
+      .replace(/\b(me and) /gi, "you and ")
+      .replace(/^we\b/i, "you").replace(/^i\b/i, "you")
+      .replace(/\bI\b/g, "you").replace(/\bmy\b/gi, "your").replace(/\bmine\b/gi, "yours")
+      .replace(/\bme\b/gi, "you").replace(/\bI'm\b/gi, "you're").replace(/\bwe\b/gi, "you")
+      .replace(/\byou was\b/gi, "you were").replace(/\byou am\b/gi, "you are");
+    // Lower-case the first letter unless it's a name.
+    // Lower-case the first word only if it's an ordinary word, never a name ("Sam", "Mum").
+    const first = t.split(/\s+/)[0];
+    if (/^(today|yesterday|tonight|then|after|at|in|on|this|that|there|the|a|an|it|they|our|your|you|when|we|my)$/i.test(first)) t = t[0].toLowerCase() + t.slice(1);
+    return t;
+  });
+  if (!parts.length) return "Oh, tell me more!";
+  const joined = parts.length > 1 ? `${parts[0]}, and ${parts[1].replace(/^(it|that|they|she|he)\b/i, (m) => m.toLowerCase())}` : parts[0];
+  const sad = /\b(sad|cried|crying|hurt|pushed|scared|angry|tired|sick|headache|lost|broke)\b/i.test(text);
+  return sad ? `Oh no, ${joined}.` : `Oh, ${joined}!`;
+}
+
+/** A follow-up that fits what the child said. */
+export function simpleFollowUp(text: string, seed: number): string {
+  const t = text.toLowerCase();
+  if (/\b(sad|cried|crying|hurt|pushed|scared|angry)\b/.test(t)) return ["What happened next?", "Who helped you feel better?"][seed % 2];
+  const friend = text.match(/\b(?:with|and) ([A-Z][a-z]+)\b/)?.[1];
+  if (friend && !/^(I|Mum|Dad)$/.test(friend)) return `What else did you and ${friend} do?`;
+  if (/\b(learned|learnt|teacher|school)\b/.test(t)) return "What was the most surprising part?";
+  if (/\b(made|drew|drawed|built|builded|painted)\b/.test(t)) return "What colours did you use?";
+  if (/\b(ate|eat|food|lunch|dinner|tasted)\b/.test(t)) return "What did it taste like?";
+  return ["Who was there with you?", "What happened next?", "What was the best part?", "How did it make you feel?"][seed % 4];
 }
