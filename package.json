@@ -10,6 +10,7 @@
     "build": "tsc",
     "seed": "node --env-file-if-exists=.env --no-warnings --import tsx scripts/seed.ts",
     "test:e2e": "node --no-warnings --import tsx scripts/e2e.ts",
+    "check:bedrock": "node --env-file-if-exists=.env --no-warnings --import tsx scripts/check-bedrock.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
