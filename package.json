@@ -5,10 +5,10 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "node --no-warnings --watch --import tsx src/server.ts",
-    "start": "node --no-warnings --import tsx src/server.ts",
+    "dev": "node --env-file-if-exists=.env --no-warnings --watch --import tsx src/server.ts",
+    "start": "node --env-file-if-exists=.env --no-warnings --import tsx src/server.ts",
     "build": "tsc",
-    "seed": "node --no-warnings --import tsx scripts/seed.ts",
+    "seed": "node --env-file-if-exists=.env --no-warnings --import tsx scripts/seed.ts",
     "test:e2e": "node --no-warnings --import tsx scripts/e2e.ts",
     "typecheck": "tsc --noEmit"
   },

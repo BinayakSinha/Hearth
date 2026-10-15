@@ -115,16 +115,23 @@ Open the dashboard, choose **Household view · Unlock**, pick Amara, and enter `
 
 Inspect the tools with the MCP Inspector: `npx @modelcontextprotocol/inspector`, transport **Streamable HTTP**, URL `http://localhost:8787/mcp`.
 
-### Turn on Amazon Bedrock
+### Turn on Amazon Bedrock (optional, and free on the AWS Free plan)
+
+Hearth runs fully without AWS; Bedrock makes the recasts, story bridges, summaries and Family Radio sound natural.
+
+1. Create an AWS account and choose the **Free plan** at sign-up (credits, no charges; it closes itself after 6 months).
+2. In the Bedrock console, in **US East (N. Virginia)**, open **API keys → Long-term API keys → Generate**, with a 30-day expiry.
+3. Copy `.env.example` to `.env` and paste the key:
 
 ```bash
-export AWS_REGION=us-east-1
-export BEDROCK_MODEL_ID=us.amazon.nova-lite-v1:0     # any Converse-capable model you have access to
-export BEDROCK_GUARDRAIL_ID=<your guardrail id>      # optional: checks content headed to children
-npm start                                            # /health reports both
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=us.amazon.nova-lite-v1:0
+AWS_BEARER_TOKEN_BEDROCK=<your key>
 ```
 
-Using Bedrock also qualifies the project for the **AWS Builder Mini Challenge**.
+4. `npm start` — the console and `/health` now say `Amazon Bedrock (us.amazon.nova-lite-v1:0)`.
+
+Optionally add `BEDROCK_GUARDRAIL_ID` to check everything read to a child with Bedrock Guardrails. Using Bedrock also qualifies the project for the **AWS Builder Mini Challenge**. The end-to-end tests always run offline.
 
 ### Environment
 
@@ -138,6 +145,7 @@ Using Bedrock also qualifies the project for the **AWS Builder Mini Challenge**.
 | `HEARTH_SAFETY_RESOURCE` | unset | A local helpline Alexa can mention, e.g. `Childline on 0800 1111` |
 | `HEARTH_CARE_NUDGES` | `off` | Default for care nudges (a parent can turn them on by voice) |
 | `BEDROCK_MODEL_ID` | unset | Enables Bedrock reasoning |
+| `AWS_BEARER_TOKEN_BEDROCK` | unset | Your Bedrock API key (or use normal AWS credentials) |
 | `BEDROCK_GUARDRAIL_ID` / `_VERSION` | unset / `DRAFT` | Bedrock Guardrails for child-bound content |
 | `HEARTH_API_KEY` | unset | If set, `/mcp` and `/api` require `Authorization: Bearer <key>` |
 

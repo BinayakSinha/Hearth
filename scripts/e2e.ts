@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 
 process.env.HEARTH_DB = "data/e2e.db";
+// Always offline: free, and the checks below don't depend on what an AI model writes.
+for (const k of ["BEDROCK_MODEL_ID", "BEDROCK_GUARDRAIL_ID", "AWS_BEARER_TOKEN_BEDROCK"]) delete process.env[k];
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
 const { execSync } = await import("node:child_process");
