@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearth on Alexa+ · simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;1,7..72,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --room: #EFE8DF; --panel: #FFFFFF; --ink: #2A2440; --soft: #6B6580; --rule: #E6E1EE; --paper: #F7F5FA;
+  --hearth: #F2A33A; --wash: #FFF1DC; --alexa: #19A7CE; --bezel: #1D1B26; --focus: #4C8BD6; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --room: #110F1E; --panel: #1E1A33; --ink: #EEEAF7; --soft: #ABA4C2; --rule: #342E52; --paper: #17142A; --wash: #3A2C14; --bezel: #08070D; --focus: #8DB6EA; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --room: #110F1E; --panel: #1E1A33; --ink: #EEEAF7; --soft: #ABA4C2; --rule: #342E52; --paper: #17142A; --wash: #3A2C14; --bezel: #08070D; --focus: #8DB6EA; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--room); color: var(--ink); font: 400 16px/1.5 Fredoka, system-ui, sans-serif; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 8px; }
+button, input { font: inherit; color: var(--ink); }
+button { cursor: pointer; background: var(--panel); border: 1.5px solid var(--rule); border-radius: 999px; padding: 8px 16px; }
+button:hover { border-color: var(--soft); }
+.layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr); gap: 28px; max-width: 1400px; margin: 0 auto; padding: 20px 24px 32px; min-height: 100vh; }
+@media (max-width: 1000px) { .layout { grid-template-columns: 1fr; padding: 16px; } }
+
+/* the device */
+.stage { display: flex; flex-direction: column; gap: 14px; }
+.top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brand { font-weight: 600; font-size: 20px; display: flex; align-items: center; gap: 8px; margin-right: auto; }
+.brand small { font-weight: 400; color: var(--soft); font-size: 14px; }
+.badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: var(--panel); border: 1.5px solid var(--rule); }
+.badge b { font-weight: 500; }
+.device { background: var(--bezel); border-radius: 26px; padding: 18px 18px 22px; box-shadow: 0 30px 60px -30px rgba(20, 16, 40, .55); }
+.screen { position: relative; aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; background: #FBF7F1; }
+/* The screen renders at a real Echo Show 8 resolution (1280×800) and is scaled to fit. */
+.screen iframe { position: absolute; left: 0; top: 0; width: 1280px; height: 800px; border: 0; transform-origin: 0 0; transform: scale(var(--k, .5)); }
+.home { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: linear-gradient(160deg, #FBF7F1, #F6E7D2); color: #2A2440; }
+.home .clock { font-size: clamp(48px, 7vw, 88px); font-weight: 500; line-height: 1; }
+.home p { margin: 10px 0 0; color: #6B6580; font-size: clamp(15px, 1.6vw, 20px); }
+.lightbar { height: 6px; margin: 16px auto 0; width: 46%; border-radius: 3px; background: #2E2B3A; transition: background .3s; }
+.lightbar.listening { background: var(--alexa); animation: pulse 1s ease-in-out infinite; }
+.lightbar.thinking { background: linear-gradient(90deg, var(--alexa), #6FE3FF, var(--alexa)); background-size: 200% 100%; animation: slide 1.2s linear infinite; }
+.lightbar.speaking { background: var(--alexa); }
+@keyframes pulse { 50% { opacity: .45; } }
+@keyframes slide { to { background-position: -200% 0; } }
+.trace { background: var(--panel); border-radius: 18px; padding: 14px 18px; }
+.trace summary { cursor: pointer; font-weight: 500; }
+.trace summary span { color: var(--soft); font-weight: 400; font-size: 14px; }
+.steps { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
+.step { font-size: 13px; border-left: 3px solid var(--alexa); padding: 2px 0 2px 10px; }
+.step.err { border-color: #D9708F; }
+.step code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--soft); word-break: break-word; }
+.step b { font-weight: 500; }
+
+/* the conversation */
+.side { background: var(--panel); border-radius: 22px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; max-height: calc(100vh - 52px); position: sticky; top: 20px; }
+@media (max-width: 1000px) { .side { position: static; max-height: none; } }
+.label { font-size: 13px; color: var(--soft); margin-bottom: 6px; }
+.voices { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; }
+.voice img, .voice .ini { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid var(--c); }
+.voice .ini { display: grid; place-items: center; font-weight: 600; color: var(--c); }
+.voice[aria-pressed="true"] { border-color: var(--c); background: var(--paper); font-weight: 500; }
+.log { flex: 1; min-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.msg { display: flex; gap: 10px; align-items: flex-start; max-width: 92%; }
+.msg img, .msg .av { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; }
+.msg .av { display: grid; place-items: center; background: var(--alexa); color: #fff; font-weight: 600; font-size: 13px; }
+.bubble { background: var(--paper); padding: 8px 12px; border-radius: 4px 16px 16px 16px; }
+.bubble small { display: block; font-size: 12px; color: var(--soft); }
+.msg.you { align-self: flex-end; flex-direction: row-reverse; }
+.msg.you .bubble { background: var(--wash); border-radius: 16px 4px 16px 16px; }
+.msg.alexa .bubble { font-family: Literata, Georgia, serif; }
+.msg .note { font-family: Fredoka, system-ui, sans-serif; font-size: 12px; color: var(--soft); margin-top: 4px; }
+.empty { color: var(--soft); text-align: center; margin: auto; max-width: 32ch; }
+.say { display: flex; gap: 8px; align-items: center; }
+.say input { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px; border: 1.5px solid var(--rule); background: var(--paper); }
+.mic { width: 46px; height: 46px; padding: 0; display: grid; place-items: center; background: var(--alexa); border-color: var(--alexa); color: #fff; flex: none; }
+.mic[aria-pressed="true"] { animation: pulse 1s ease-in-out infinite; }
+.mic svg { width: 20px; height: 20px; }
+.send { flex: none; }
+.ideas { display: flex; flex-wrap: wrap; gap: 6px; }
+.ideas button { font-size: 13px; padding: 4px 12px; background: var(--paper); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--soft); }
+.row label { display: flex; align-items: center; gap: 6px; }
+.row a { color: var(--soft); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { .lightbar, .mic { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="layout">
+  <main class="stage">
+    <div class="top">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c3.5 4.5 8 8 8 14.5a8 8 0 1 1-16 0c0-3.5 1.7-5.8 3.5-7.4 0 2.8 1 4.4 2.8 5C13.6 10.5 13.8 7 16 3z" fill="var(--hearth)"/></svg>
+        Hearth on Alexa+ <small>· simulated Echo Show</small>
+      </div>
+      <span class="badge" id="agentBadge">Agent: …</span>
+    </div>
+    <div class="device">
+      <div class="screen" id="screen" aria-live="polite">
+        <div class="home" id="home"><div><div class="clock" id="clock"></div><p>Try “Alexa, open my journal”</p></div></div>
+      </div>
+      <div class="lightbar" id="lightbar" aria-hidden="true"></div>
+    </div>
+    <details class="trace" id="trace" open>
+      <summary>What Alexa+ did <span>· MCP tool calls over Streamable HTTP</span></summary>
+      <div class="steps" id="steps"><div class="step"><code>Nothing yet.</code></div></div>
+    </details>
+  </main>
+
+  <aside class="side">
+    <div>
+      <div class="label">Who's speaking (stands in for Alexa+ voice ID)</div>
+      <div class="voices" id="voices" role="group" aria-label="Who's speaking"></div>
+    </div>
+    <div class="log" id="log" aria-live="polite"><p class="empty" id="empty">Pick who's speaking, then talk to Alexa with the mic or by typing.</p></div>
+    <div class="ideas" id="ideas" aria-label="Things to try"></div>
+    <form class="say" id="sayForm">
+      <button class="mic" id="mic" type="button" aria-pressed="false" aria-label="Talk to Alexa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <label for="text" class="sr-only">What you say</label>
+      <input id="text" autocomplete="off" placeholder="Alexa, open my journal">
+      <button class="send" type="submit">Say</button>
+    </form>
+    <div class="row">
+      <label><input type="checkbox" id="voiceOut" checked> Alexa speaks</label>
+      <label id="scriptedWrap"><input type="checkbox" id="scripted"> Scripted agent</label>
+      <button type="button" id="reset">New conversation</button>
+      <a href="/" target="_blank" rel="noopener">Open the family dashboard</a>
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+import { AppBridge, PostMessageTransport } from "./app-bridge.js";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const COLORS = { child: "#F2A33A", adult: "#4C8BD6", elder: "#D9708F" };
+const sessionId = (() => { try { return sessionStorage.getItem("hearth.sim") || (sessionStorage.setItem("hearth.sim", crypto.randomUUID()), sessionStorage.getItem("hearth.sim")); } catch { return crypto.randomUUID(); } })();
+let members = [], speaker = "Leo", busy = false, bridge = null;
+
+/* ── keep the 1280×800 screen scaled to the device ── */
+const fit = () => $("screen").style.setProperty("--k", String($("screen").clientWidth / 1280));
+new ResizeObserver(fit).observe($("screen"));
+fit();
+
+/* ── clock on the home screen ── */
+const tick = () => { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+tick(); setInterval(tick, 15000);
+
+/* ── voice ID ── */
+function renderVoices() {
+  $("voices").innerHTML = members.map((m) => `<button type="button" class="voice" style="--c:${COLORS[m.role] || "#8B7BD8"}" data-name="${esc(m.name)}" aria-pressed="${m.name === speaker}">
+    ${m.photo ? `<img src="/${esc(m.photo)}" alt="">` : `<span class="ini">${esc(m.name[0])}</span>`}${esc(m.name)}${m.called && m.called !== m.name ? ` <small>(${esc(m.called)})</small>` : ""}</button>`).join("");
+  renderIdeas();
+}
+$("voices").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-name]");
+  if (!b) return;
+  speaker = b.dataset.name;
+  renderVoices();
+});
+const IDEAS = {
+  child: ["Alexa, open my journal", "Alexa, delete what I just said"],
+  elder: ["Alexa, open my journal", "Alexa, start a Hearth chat with Leo and Mum", "We're done"],
+  adult: ["Alexa, how's Leo doing? My PIN is 1234", "Alexa, play Family Radio", "Alexa, show me the family", "When is the plumber coming?", "Alexa, open my journal"],
+};
+function renderIdeas() {
+  const m = members.find((x) => x.name === speaker);
+  $("ideas").innerHTML = (IDEAS[m?.role] || IDEAS.adult).map((t) => `<button type="button">${esc(t)}</button>`).join("");
+}
+$("ideas").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) send(b.textContent); });
+
+/* ── the conversation ── */
+function addMsg(who, text, opts = {}) {
+  $("empty")?.remove();
+  const m = members.find((x) => x.name === who);
+  const div = document.createElement("div");
+  div.className = `msg ${who === "Alexa" ? "alexa" : "you"}`;
+  div.innerHTML = (who === "Alexa" ? `<span class="av" aria-hidden="true">A</span>` : m?.photo ? `<img src="/${esc(m.photo)}" alt="">` : `<span class="av">${esc(who[0])}</span>`) +
+    `<div class="bubble"><small>${esc(who)}</small>${esc(text)}${opts.note ? `<div class="note">${esc(opts.note)}</div>` : ""}</div>`;
+  $("log").appendChild(div);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function renderSteps(steps) {
+  if (!steps.length) return;
+  $("steps").innerHTML = steps.map((s) => `<div class="step${s.ok ? "" : " err"}"><b>${esc(s.tool)}</b> <code>${esc(JSON.stringify(s.args))}</code><br><code>→ ${esc(s.result.slice(0, 220))}${s.result.length > 220 ? "…" : ""}</code></div>`).join("");
+}
+const light = (state) => { $("lightbar").className = `lightbar ${state || ""}`; };
+
+function speak(text) {
+  if (!$("voiceOut").checked || !("speechSynthesis" in window)) { light(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.02;
+  u.onstart = () => light("speaking");
+  u.onend = () => light();
+  speechSynthesis.speak(u);
+}
+
+async function send(text) {
+  text = String(text || "").trim();
+  if (!text || busy) return;
+  busy = true;
+  $("text").value = "";
+  addMsg(speaker, text);
+  light("thinking");
+  try {
+    const r = await fetch("/api/sim/turn", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: sessionId, speaker, text, prefer: $("scripted").checked ? "scripted" : "auto" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Something went wrong");
+    addMsg("Alexa", d.reply, { note: d.note });
+    renderSteps(d.steps);
+    if (d.ui) await showScreen(d.ui);
+    speak(d.reply);
+  } catch (e) {
+    addMsg("Alexa", `Sorry, something went wrong: ${e.message}`);
+    light();
+  } finally {
+    busy = false;
+  }
+}
+$("sayForm").addEventListener("submit", (e) => { e.preventDefault(); send($("text").value); });
+$("reset").addEventListener("click", async () => {
+  await fetch("/api/sim/reset", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: sessionId }) });
+  $("log").innerHTML = `<p class="empty" id="empty">New conversation. Pick who's speaking and say something.</p>`;
+  $("steps").innerHTML = `<div class="step"><code>Nothing yet.</code></div>`;
+  showHome();
+});
+
+/* ── the Echo Show screen: an MCP App, hosted with the official MCP Apps bridge ── */
+function showHome() {
+  $("screen").querySelector("iframe")?.remove();
+  $("home").hidden = false;
+}
+async function showScreen(ui) {
+  const res = await fetch(`/api/sim/resource?uri=${encodeURIComponent(ui.resourceUri)}`).then((r) => r.json());
+  if (bridge) { try { await bridge.teardownResource({}); } catch {} try { await bridge.close(); } catch {} }
+  $("screen").querySelector("iframe")?.remove();
+  const frame = document.createElement("iframe");
+  frame.title = "Hearth screen";
+  frame.setAttribute("sandbox", "allow-scripts");
+  $("screen").appendChild(frame);
+  $("home").hidden = true;
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light";
+  bridge = new AppBridge(null, { name: "Hearth Alexa+ simulator", version: "1.0.0" }, { serverTools: {}, openLinks: {} }, {
+    hostContext: { theme: dark ? "dark" : "light", displayMode: "inline", locale: navigator.language, platform: "web" },
+  });
+  bridge.oncalltool = async (params) => (await fetch("/api/sim/tool", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(params) })).json();
+  bridge.oninitialized = () => {
+    bridge.sendToolInput({ arguments: ui.args });
+    bridge.sendToolResult(ui.result);
+  };
+  await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
+  frame.srcdoc = res.html;
+}
+
+/* ── listening: the browser's speech recognition (Chrome, Edge) ── */
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!Recognition) { $("mic").hidden = true; }
+let rec = null;
+$("mic").addEventListener("click", () => {
+  if (rec) { rec.stop(); return; }
+  speechSynthesis?.cancel();
+  rec = new Recognition();
+  rec.lang = navigator.language || "en-GB";
+  rec.interimResults = true;
+  rec.onresult = (e) => {
+    const t = [...e.results].map((r) => r[0].transcript).join(" ");
+    $("text").value = t;
+    if (e.results[e.results.length - 1].isFinal) { rec.stop(); send(t); }
+  };
+  rec.onstart = () => { $("mic").setAttribute("aria-pressed", "true"); light("listening"); };
+  rec.onend = () => { $("mic").setAttribute("aria-pressed", "false"); if ($("lightbar").classList.contains("listening")) light(); rec = null; };
+  rec.onerror = () => { rec = null; light(); };
+  rec.start();
+});
+
+/* ── start ── */
+const info = await fetch("/api/sim/info").then((r) => r.json());
+members = info.members;
+speaker = members.find((m) => m.role === "child")?.name || members[0]?.name;
+$("agentBadge").innerHTML = info.agent === "bedrock" ? `Alexa+ agent: <b>Amazon Bedrock</b> (${esc(info.model)})` : `Alexa+ agent: <b>scripted</b> (add Bedrock for the AI agent)`;
+if (info.agent !== "bedrock") $("scriptedWrap").hidden = true;
+renderVoices();
+</script>
+</body>
+</html>

@@ -10,7 +10,9 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { RESOURCE_MIME_TYPE, registerAppResource, registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -20,20 +22,27 @@ import {
   startConversation, startSession, type Viewer,
 } from "./memory.js";
 import { readSession, signIn } from "./auth.js";
-import { dataVersion } from "./db.js";
+import { dataVersion, findMember, sharedEntriesSince } from "./db.js";
+import { mountSimulator } from "./simulator.js";
 import { llmLabel } from "./llm.js";
 import { guardrailLabel } from "./safety.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const API_KEY = process.env.HEARTH_API_KEY; // optional bearer token for /mcp and /api
 
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
+type ToolResult = { content: { type: "text"; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean };
 
-/** Wraps tool logic: JSON result for the agent, friendly error text on failure. */
-async function run(fn: () => unknown): Promise<ToolResult> {
+/**
+ * Wraps tool logic: JSON result for the agent, friendly error text on failure. Tools with an Echo Show
+ * screen (MCP Apps) also return `structuredContent` — the data the screen draws.
+ */
+async function run<T>(fn: () => T | Promise<T>, screen?: (result: T) => Record<string, unknown>): Promise<ToolResult> {
   try {
     const result = await fn();
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      ...(screen ? { structuredContent: screen(result) } : {}),
+    };
   } catch (err) {
     const msg = err instanceof HearthError ? err.message : `Hearth hit a problem: ${(err as Error).message}`;
     if (!(err instanceof HearthError)) console.error(err);
@@ -41,10 +50,31 @@ async function run(fn: () => unknown): Promise<ToolResult> {
   }
 }
 
+// ── The Echo Show screen (MCP Apps) ──
+const SCREEN_URI = "ui://hearth/screen.html";
+const here = dirname(fileURLToPath(import.meta.url));
+const SCREEN_HTML = (() => {
+  try { return readFileSync(join(here, "..", "public", "ui", "screen.html"), "utf8"); }
+  catch { return "<!doctype html><p>Run npm run build:ui to build Hearth's screen.</p>"; }
+})();
+const SEAT_RANK = (m: { role: string; is_parent?: boolean | number }) => (m.role === "elder" ? 0 : m.role === "child" ? 1 : m.is_parent ? 2 : 3);
+/** Elders in the middle of the arc, children beside them, parents next, others at the ends. */
+function seatingOrder<T extends { role: string; is_parent?: boolean | number }>(people: T[]): T[] {
+  const seats: T[] = [];
+  [...people].sort((a, b) => SEAT_RANK(a) - SEAT_RANK(b)).forEach((m, i) => (i % 2 === 0 ? seats.push(m) : seats.unshift(m)));
+  return seats;
+}
+
 const memberName = z.string().min(1).describe("The family member's first name or what the family calls them, e.g. \"Leo\" or \"Gran\". Use whoever is speaking.");
 const pin = z.string().optional().describe("The speaker's parent PIN, only if they said it. Needed for parent-level requests; never guess it or say it back.");
 
-export function buildServer(): McpServer {
+/** `base` is this server's public address, used for photo URLs on the screen. */
+export function buildServer(base = process.env.HEARTH_PUBLIC_URL ?? `http://localhost:${PORT}`): McpServer {
+  const abs = (path: string | null | undefined) => (path ? new URL(path, `${base}/`).href : null);
+  const personOf = (name: string) => {
+    const m = findMember(name);
+    return { name: m?.name ?? name, called: m?.relation ?? null, photo: abs(m?.photo), role: m?.role ?? "adult" };
+  };
   const server = new McpServer(
     { name: "hearth", title: "Hearth — family memory", version: "0.2.0" },
     {
@@ -56,9 +86,28 @@ export function buildServer(): McpServer {
         "→ (ask the question, listen) → save_journal_entry with the speaker's EXACT words → say the `say` field. " +
         "For several people talking together, use start_family_conversation and save_family_conversation. " +
         "Parent-level requests (a child's progress, deleting older entries, settings) need the parent's PIN; ask for it " +
-        "if a tool says so, and never repeat it aloud. Never reveal one member's private entries to another.",
+        "if a tool says so, and never repeat it aloud. Never reveal one member's private entries to another. " +
+        "On devices with a screen, some tools also show Hearth's screen (MCP Apps): progress, Family Radio, the family, " +
+        "and what someone just said.",
     },
   );
+
+  registerAppResource(
+    server,
+    "Hearth screen",
+    SCREEN_URI,
+    { description: "Hearth's Echo Show screen: a child's progress, Family Radio, the family arc, or a just-saved entry." },
+    async () => ({
+      contents: [{
+        uri: SCREEN_URI,
+        mimeType: RESOURCE_MIME_TYPE,
+        text: SCREEN_HTML,
+        // Photos come from this server, so the screen may load images from it.
+        _meta: { ui: { csp: { resourceDomains: [new URL(base).origin] }, prefersBorder: false } },
+      }],
+    }),
+  );
+  const screenMeta = { ui: { resourceUri: SCREEN_URI } };
 
   server.registerTool(
     "start_journal_session",
@@ -90,7 +139,8 @@ export function buildServer(): McpServer {
     ({ member_name }) => run(() => nextPrompt(member_name)),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "save_journal_entry",
     {
       title: "Save a journal entry",
@@ -110,11 +160,21 @@ export function buildServer(): McpServer {
         private: z.boolean().optional().describe("True if the speaker wants this kept private (never shared with others)."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      _meta: screenMeta,
     },
-    (args) => run(() => saveEntry({ name: args.member_name, transcript: args.transcript, prompt: args.prompt, thread_id: args.thread_id, private: args.private })),
+    (args) => run(
+      () => saveEntry({ name: args.member_name, transcript: args.transcript, prompt: args.prompt, thread_id: args.thread_id, private: args.private }),
+      (r) => {
+        const x = r as { say: string; private?: boolean; safety?: string; big_words_today?: string[] };
+        // A shared screen never shows a private or sensitive entry's words.
+        const hideWords = !!x.private || !!x.safety;
+        return { view: "saved", person: personOf(args.member_name), said: hideWords ? "" : args.transcript, reply: x.say, big_words: x.big_words_today ?? [], private: !!x.private, safety: x.safety === "household_harm" || x.safety === "self_harm" };
+      },
+    ),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "get_kid_speaking_progress",
     {
       title: "Child's speaking-practice progress",
@@ -129,8 +189,17 @@ export function buildServer(): McpServer {
         days: z.number().int().min(7).max(120).optional().describe("Look-back window in days (default 28)."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: screenMeta,
     },
-    ({ child_name, requested_by, pin, days }) => run(() => progressByVoice(child_name, requested_by, pin, days ?? 28)),
+    ({ child_name, requested_by, pin, days }) => run(
+      () => progressByVoice(child_name, requested_by, pin, days ?? 28),
+      (p) => ({
+        view: "progress", child: { ...personOf(p.child), role: "child" },
+        first: Math.round(p.words_per_answer_first_week), latest: Math.round(p.words_per_answer_latest_week),
+        weekly: p.weekly.map((w) => ({ week: w.week, avg_words: w.avg_words })),
+        big_words: p.recent_big_words, streak: p.streak_days, note: p.note,
+      }),
+    ),
   );
 
   server.registerTool(
@@ -152,7 +221,8 @@ export function buildServer(): McpServer {
     ({ question, asked_by, pin }) => run(() => recall(question, asked_by, pin)),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "play_family_radio",
     {
       title: "Play Family Radio",
@@ -165,8 +235,40 @@ export function buildServer(): McpServer {
         days: z.number().int().min(1).max(31).optional().describe("How many days to cover (default 7)."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: screenMeta,
     },
-    ({ days }) => run(() => familyRadio(days ?? 7)),
+    ({ days }) => run(
+      () => familyRadio(days ?? 7),
+      (ep) => ({ view: "radio", period_days: ep.period_days, script: ep.script, cast: seatingOrder(ep.cast.map((c) => ({ ...c, photo: abs(c.photo) }))) }),
+    ),
+  );
+
+  registerAppTool(
+    server,
+    "show_family",
+    {
+      title: "Show the family",
+      description:
+        "Show the family on screen — everyone's photo around the hearth, how many stories were shared this week, and " +
+        "who has a story or question waiting. Use for \"Alexa, show me the family\" or \"Is anything waiting for us?\". " +
+        "Shows only what the whole household may see.",
+      inputSchema: { requested_by: memberName.optional().describe("Who is asking (optional).") },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: screenMeta,
+    },
+    () => run(
+      () => {
+        const family = familyOverview().map((m) => ({ name: m.name, called: m.called, role: m.role, is_parent: m.is_parent, photo: abs(m.photo), waiting: m.waiting, week_entries: m.week_entries }));
+        const stories = sharedEntriesSince(new Date(Date.now() - 7 * 86_400_000).toISOString()).length;
+        const waiting = family.reduce((n, m) => n + m.waiting, 0);
+        const who = family.filter((m) => m.waiting).map((m) => m.name);
+        return {
+          family, stories, waiting,
+          say: `${stories} stories this week.${who.length ? ` ${who.join(" and ")} ${who.length === 1 ? "has" : "have"} something waiting.` : ""}`,
+        };
+      },
+      (r) => ({ view: "family", family: seatingOrder(r.family), stories: r.stories, waiting: r.waiting }),
+    ),
   );
 
   server.registerTool(
@@ -308,8 +410,11 @@ function checkOrigin(req: Request, res: Response, next: NextFunction) {
 
 // Stateless Streamable HTTP: every POST gets its own server + transport. (The SQLite store still means
 // one instance with a persistent disk — see the README's deploy section.)
+const publicBase = (req: Request) =>
+  process.env.HEARTH_PUBLIC_URL ?? `${req.header("x-forwarded-proto") ?? req.protocol}://${req.header("x-forwarded-host") ?? req.header("host")}`;
+
 app.post("/mcp", checkOrigin, auth, async (req, res) => {
-  const server = buildServer();
+  const server = buildServer(publicBase(req));
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => {
     void transport.close();
@@ -360,7 +465,7 @@ app.get("/api/radio", auth, async (req, res) => {
   try { res.json(await familyRadio(Number(req.query.days ?? 7))); } catch (e) { apiError(res, e); }
 });
 
-const here = dirname(fileURLToPath(import.meta.url));
+mountSimulator(app, auth, PORT);
 app.use(express.static(join(here, "..", "public")));
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

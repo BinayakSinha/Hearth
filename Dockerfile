@@ -6,6 +6,7 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY public ./public
+COPY skills ./skills
 ENV PORT=8787 NODE_OPTIONS=--no-warnings HEARTH_DB=/app/data/hearth.db HEARTH_TZ=Europe/London
 # The family's journal lives here. Mount a persistent volume on /app/data, or it's lost on redeploy.
 VOLUME ["/app/data"]

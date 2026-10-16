@@ -1,15 +1,30 @@
-// Amazon Bedrock (Converse API) for the reasoning steps: entry extraction, kid recasting,
-// cross-family story bridges and the Family Radio script.
+// Amazon Bedrock (Converse API) for the reasoning steps: entry summaries, story bridges, care nudges,
+// conversation summaries, Family Radio — and the simulator's Alexa+ agent (tool use).
 //
 // If BEDROCK_MODEL_ID is not set (or a call fails), callers fall back to deterministic
 // templates, so the server always works offline for local testing and judging.
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseCommandOutput } from "@aws-sdk/client-bedrock-runtime";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
-const MODEL_ID = process.env.BEDROCK_MODEL_ID; // e.g. "us.amazon.nova-lite-v1:0"
-const client = MODEL_ID ? new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1" }) : null;
+const MODEL_ID = process.env.BEDROCK_MODEL_ID; // e.g. "amazon.nova-lite-v1:0"
+// BEDROCK_ENDPOINT points at a local mock for tests (scripts/mock-bedrock.ts); unset in real use.
+const ENDPOINT = process.env.BEDROCK_ENDPOINT;
+const client = MODEL_ID
+  ? new BedrockRuntimeClient({
+      region: process.env.AWS_REGION ?? "us-east-1",
+      ...(ENDPOINT ? { endpoint: ENDPOINT, requestHandler: new NodeHttpHandler() } : {}),
+    })
+  : null;
 
 export const llmEnabled = () => client !== null;
 export const llmLabel = () => (client ? `Amazon Bedrock (${MODEL_ID})` : "offline templates");
+export const modelId = () => MODEL_ID;
+
+/** Raw Converse call (used by the agent for tool use). Throws on failure. */
+export async function converse(input: Omit<ConverseCommandInput, "modelId">): Promise<ConverseCommandOutput> {
+  if (!client || !MODEL_ID) throw new Error("Bedrock is not configured");
+  return client.send(new ConverseCommand({ modelId: MODEL_ID, ...input }));
+}
 
 export async function complete(system: string, user: string, maxTokens = 600): Promise<string | null> {
   if (!client || !MODEL_ID) return null;

@@ -46,11 +46,11 @@ console.log(`\nHearth e2e against ${base}/mcp\n`);
 
 // ── The core demo ──
 
-await step("negotiates MCP protocol 2025-11-25 and lists 11 tools", async () => {
+await step("negotiates MCP protocol 2025-11-25 and lists 12 tools", async () => {
   const health = await (await fetch(`${base}/health`)).json();
   assert.equal(health.protocol, "2025-11-25");
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 11);
+  assert.equal(tools.length, 12);
   console.log("     tools:", tools.map((t) => t.name).join(", "));
 });
 
@@ -323,6 +323,67 @@ await step("Streamable HTTP spec: untrusted Origin → 403, bad protocol version
 await step("unknown member gets a friendly error", async () => {
   const r = await call("start_journal_session", { member_name: "Zorro" });
   assert.ok(r.isError && /Members:/.test(r.text));
+});
+
+// ── The simulated Alexa+ (web app at /sim): an agent that reaches Hearth only through MCP ──
+
+process.env.HEARTH_SELF_URL = `${base}/mcp`;
+const simSession = `e2e-${Date.now()}`;
+type SimTurn = { reply: string; agent: string; steps: { tool: string; args: Record<string, unknown> }[]; ui?: { resourceUri: string; tool: string; result: { structuredContent?: { view: string } } } };
+async function sim(speaker: string, text: string): Promise<SimTurn> {
+  const r = await fetch(`${base}/api/sim/turn`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: simSession, speaker, text }) });
+  assert.equal(r.status, 200, `sim turn: ${text}`);
+  return r.json();
+}
+const tools = (t: SimTurn) => t.steps.map((s) => s.tool);
+
+await step("simulator: Leo opens his journal and answers; the Echo Show screen shows it saved", async () => {
+  const open = await sim("Leo", "Alexa, open my family journal");
+  assert.equal(open.agent, "scripted");
+  assert.deepEqual(tools(open), ["start_journal_session", "get_journal_prompt"]);
+  const ans = await sim("Leo", "We made a volcano at school and it fizzed everywhere");
+  assert.deepEqual(tools(ans), ["save_journal_entry"]);
+  assert.equal(ans.ui?.resourceUri, "ui://hearth/screen.html");
+  assert.equal(ans.ui?.result.structuredContent?.view, "saved");
+  assert.match(ans.reply, /\?/, "a child gets a follow-up question");
+});
+
+await step("simulator: progress needs a PIN, asks for it, and the next turn finishes the call", async () => {
+  const ask = await sim("Amara", "Alexa, how's Leo doing?");
+  assert.match(ask.reply, /PIN/);
+  const done = await sim("Amara", "1234");
+  assert.deepEqual(tools(done), ["get_kid_speaking_progress"]);
+  assert.equal(done.ui?.result.structuredContent?.view, "progress");
+  assert.equal(done.steps[0].args.pin, "••••", "the trace never shows the PIN");
+});
+
+await step("simulator: Family Radio and show-the-family open their screens", async () => {
+  const radio = await sim("Marcus", "Alexa, play Family Radio");
+  assert.equal(radio.ui?.result.structuredContent?.view, "radio");
+  const fam = await sim("Marcus", "Alexa, show me the family");
+  assert.deepEqual(tools(fam), ["show_family"]);
+  assert.equal(fam.ui?.result.structuredContent?.view, "family");
+});
+
+await step("simulator: conversation mode — start, take turns, 'we're done' saves it to the journal", async () => {
+  const start = await sim("Marcus", "Alexa, start a family chat with Leo");
+  assert.deepEqual(tools(start), ["start_family_conversation"]);
+  await sim("Marcus", "I remember my first bike was bright red");
+  await sim("Leo", "Mine is blue and it has a bell");
+  const end = await sim("Marcus", "Alexa, we're done");
+  assert.deepEqual(tools(end), ["save_family_conversation"]);
+  const turns = end.steps[0].args.turns as unknown[];
+  assert.equal(turns.length, 2);
+});
+
+await step("simulator: the screen resource is an MCP App (text/html;profile=mcp-app)", async () => {
+  const r = await (await fetch(`${base}/api/sim/resource?uri=${encodeURIComponent("ui://hearth/screen.html")}`)).json();
+  assert.equal(r.mimeType, "text/html;profile=mcp-app");
+  assert.match(r.html, /<main id="root">/);
+  const info = await (await fetch(`${base}/api/sim/info`)).json();
+  assert.equal(info.skill.name, "hearth", "the agent runs on Hearth's Agent Skill");
+  const page = await fetch(`${base}/sim/`);
+  assert.equal(page.status, 200);
 });
 
 await step("retention: entries older than the keep period are removed (memoir is kept)", async () => {

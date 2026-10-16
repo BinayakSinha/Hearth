@@ -12,61 +12,59 @@ Everything else (daily logs, memoir chapters, family table, Family Radio, recall
 
 The second message is **trust**: privacy and safety rules enforced in code, consent for kids, delete anything, and possible safety disclosures shared with no one.
 
-## Where it stands (Wed 14 Oct)
+## Where it stands (Fri 16 Oct)
 
-Done and tested (31 end-to-end checks over Streamable HTTP):
-- MCP server, 11 tools, protocol 2025-11-25, Streamable HTTP
-- Speaking practice: recast + follow-up, words per answer, age-graded "big words"
-- Daily logs with patterns; memoir chapters; family-table conversations
-- Family Threads both ways; opt-in, mild-only care nudges
-- Light PIN (once per session), parent consent for kids, delete by voice and on the dashboard, retention
-- Paraphrase guard, safety disclosures, child-content check (Bedrock Guardrails or offline filter)
-- Family Radio; Bedrock integration with offline fallback
-- Dashboard: photo arc, story lines, journal panel, household view and unlock, live refresh
+The hackathon allows a simulated Alexa+ experience ("simulate an Alexa+ experience using your preferred agentic tools via a web app"), and Amazon has run out of credit codes. So the submission is built around the **simulator at `/sim`**. A real Alexa+ device is a bonus, not a dependency.
+
+Done and tested (37 end-to-end checks over Streamable HTTP, plus 5 Bedrock checks against a mock Converse API):
+- MCP server, 12 tools, protocol 2025-11-25, Streamable HTTP (stateless, Origin check, version check)
+- **MCP Apps:** Hearth's Echo Show screen (`ui://hearth/screen.html`) for saved entries, a child's progress, Family Radio and the family arc
+- **Simulated Alexa+:** a Bedrock (Nova Lite) agent that reaches Hearth only through MCP, a voice-ID stand-in, mic and speech, an MCP App host for the screen, and an MCP trace panel. A scripted router is used when offline.
+- **Agent Skill:** `skills/hearth/SKILL.md`, loaded by the simulator's agent
+- Fast replies (about 20 ms). Bedrock work runs in the background, and Family Radio is pre-written.
+- Speaking practice, daily logs, memoir, family table, Family Threads, opt-in care nudges
+- Light PIN, consent, delete, retention, paraphrase guard, safety disclosures, child-content check
+- Dashboard: photo arc, journal panel, household view and unlock, live refresh
+- Bedrock connected in Sydney (`amazon.nova-lite-v1:0`)
 
 ## Remaining days
 
 | Day | Date | Goal |
 |---|---|---|
-| 1 | Thu 15 Oct | Get Bedrock access; set `BEDROCK_MODEL_ID`; create a Guardrail and set `BEDROCK_GUARDRAIL_ID`. Compare recasts, conversation summaries and Family Radio against the templates; tune the prompts in `src/memory.ts`. Add one Bedrock smoke test. |
-| 2 | Fri 16 Oct | Deploy the Docker image to **one instance with a persistent volume** (Lightsail/EC2, or Fly/Railway with a volume — not App Runner). Install the Alexa AI CLI, run `alexa-ai new mcp` and `alexa-ai deploy`. **Riskiest step — do it early.** |
-| 3 | Sat 17 Oct | On a real Echo or the Alexa app: **check Alexa+ passes Leo's exact words** (the paraphrase guard will reject summaries — if it keeps happening, tighten the tool descriptions; if it can't be fixed, use the simulated path for the kid segment). Fix tool descriptions wherever Alexa+ picks the wrong tool. Try the family-table flow. |
-| 4 | Sun 18 Oct | Rehearse the demo end to end; adjust seed data so every beat lands. Replace the watermarked photos. |
-| 5 | Mon 19 Oct | Buffer / polish. |
-| 6 | Tue 20 Oct | Record the demo video (script below), with Bedrock on. |
-| 7 | Wed 21 Oct | Edit; write the Devpost story (hero flow, how it works, Bedrock + Guardrails, privacy and safety). |
-| 8 | Thu 22 Oct | Final repo pass, README screenshots, make the repo public, submit a draft. |
-| 9 | Fri 23 Oct | Submit. Don't build anything new. |
+| 1 | Sat 17 Oct | Run `npm run lab` and the simulator with Bedrock on, then tune prompts and the agent from what it actually says. Check the agent passes exact words and picks the right tools on every demo line. |
+| 2 | Sun 18 Oct | Put a public instance up for judges: a free tunnel (`cloudflared`) from your machine for the demo week, or a small always-on host with a volume. Set `HEARTH_SECRET`. Replace the watermarked photos. |
+| 3 | Mon 19 Oct | Rehearse the demo end to end in the simulator, and adjust the seed data so every beat lands. Optional: try the Alexa AI CLI if you get access. |
+| 4 | Tue 20 Oct | Record the demo video (script below), with Bedrock on. |
+| 5 | Wed 21 Oct | Edit the video, and write the Devpost story (hero flow, simulator + MCP + MCP Apps + Agent Skill, Bedrock, privacy and safety). |
+| 6 | Thu 22 Oct | Final repo pass, make the repo public, submit a draft. |
+| 7 | Fri 23 Oct | Submit. Don't build anything new. |
 
-**If Alexa+ onboarding is blocked by Day 3:** switch to the rules' simulated-experience path. Keep the MCP server, and add a small voice front-end (browser speech recognition + speech synthesis) that calls the same tools. The rules require the simulation's source in the repo and the demo to clearly show it working.
+## Demo video (about 3 minutes, recorded in the simulator)
 
-## Demo video (about 3 minutes)
+Say on screen once that the three weeks of history are sample data, and that the photo chips stand in for Alexa+ voice ID. Everything after that is live. Keep the "What Alexa+ did" panel visible: it proves every answer comes through MCP.
 
-Say on screen once that the three weeks of history are sample data; everything after that is live.
+**0:00 – 0:20 · The hook.** Gran's photo and her bicycle story. "Stories like this disappear. Kids' first words go unwritten. Hearth is the family's memory, and it lives where the whole family already is."
 
-**0:00 – 0:20 · The hook.** Gran's voice over her photo: the bicycle story. "Stories like this disappear. Kids' first words go unwritten. Hearth is the family's memory — and it lives where the whole family already is."
+**0:20 – 1:05 · The hero loop.** Simulator on the left, dashboard on the right.
+- Pick Leo, then say "Alexa, open my journal". Alexa asks Gran's bicycle question (the family thread).
+- Leo answers in a short sentence. Alexa recasts it and asks a follow-up, and the Echo Show screen shows his words and a big-word sticker. Caption: *"It never corrects him. It models richer language."*
+- **The dashboard updates by itself:** Leo's bubble pulses and his entry appears.
 
-**0:20 – 1:05 · The hero loop (live).** Split screen: Echo on the left, dashboard on the right.
-- "Alexa, open Hearth for Leo." → Alexa asks Gran's bicycle question (the family thread).
-- Leo answers in a short sentence → Alexa recasts it and asks a follow-up. Caption: *"It never corrects him — it models richer language."*
-- **The dashboard updates by itself**: Leo's bubble pulses, his entry appears, the line to Gran lights up.
-- Cut to Gran: Alexa asks her about Leo riding without training wheels.
+**1:05 – 1:35 · The parent view.** Pick Amara: "Alexa, how's Leo doing?" Alexa asks for her PIN, and the screen shows 7 → 27 words per answer, the weekly bars and the big words. Show the "not a clinical assessment" line.
 
-**1:05 – 1:35 · The parent view.** Unlock as Mum (PIN once). Leo's journal: "We played. It was fun." next to his latest answer, words per answer 7 → 28, big words like *germinating* and *extraordinary*. Show the "not a clinical assessment" line.
+**1:35 – 2:05 · The family table.** Pick Marcus: "Alexa, start a family chat with Gran and Leo." Switch speakers for a few turns, then say "We're done". The conversation card appears on the dashboard.
 
-**1:35 – 2:05 · The family table.** "Alexa, start a Hearth chat with Gran, Leo and Mum." A few turns; the conversation card appears on the dashboard. Caption: *"Voice ID knows who's speaking."*
+**2:05 – 2:30 · Trust, in 25 seconds.** Quick cuts: Uncle Finn can't open Leo's journal; "Alexa, delete what I just said"; the consent statement when adding a child. One line: *"If a child says something that sounds unsafe, Hearth tells no one in the house, and gently helps them find a trusted adult."*
 
-**2:05 – 2:30 · Trust, in 25 seconds.** Quick cuts: Uncle Finn can't open Leo's journal; "Alexa, delete what I just said"; the consent statement when adding a child. One line: *"If a child says something that sounds unsafe, Hearth tells no one in the house — and gently helps them find a trusted adult."*
+**2:30 – 2:45 · Family Radio.** "Alexa, play Family Radio." The screen highlights each part as it's read, and each person's face pulses when they're mentioned.
 
-**2:30 – 2:45 · Family Radio.** "Alexa, play Family Radio." Bubbles pulse as each person is mentioned.
-
-**2:45 – 3:00 · Under the hood.** Architecture: Alexa+ → MCP (Streamable HTTP, 2025-11-25) → Hearth → Bedrock + Guardrails. Rules in code. Close on: "Hearth. The family memory that talks back."
+**2:45 – 3:00 · Under the hood.** Architecture: simulated Alexa+ (Bedrock agent + Agent Skill) → MCP (Streamable HTTP, 2025-11-25) → Hearth → Bedrock + Guardrails, with the screen as an MCP App. Close on: "Hearth. The family memory that talks back."
 
 ## Devpost checklist
 
 - [ ] Public repo with the MCP server source (this repo)
-- [ ] Demo video showing the MCP server **in action through Alexa+** (or the simulated path, clearly shown)
-- [ ] Screenshot of the add-on in the Alexa developer console
+- [ ] Demo video clearly showing the simulated Alexa+ working, with the MCP trace visible
+- [ ] Simulator source in the repo (`src/simulator.ts`, `public/sim/`, `ui/`) and the Agent Skill (`skills/hearth/SKILL.md`)
 - [ ] Bedrock and Guardrails mentioned and shown, for the AWS Builder Mini Challenge
-- [ ] Testing instructions for judges (`npm run seed && npm start`, demo PIN `1234`, plus the public URL)
+- [ ] Testing instructions for judges (`npm install && npm run seed && npm start`, open `/sim/`, demo PIN `1234`, plus the public URL)
 - [ ] Watermarked stock photos replaced

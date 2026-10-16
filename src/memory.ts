@@ -12,7 +12,7 @@ import {
   conversationTurns, dataVersion, deleteEntryRow, entriesFor, entriesOlderThan, entryById, findMember,
   getSetting, insertConversation, insertEntry, insertMember, insertThread, markThreadUsed, memberById,
   nowIso, pendingThreadsFor, recordVocabulary, setSetting, sharedEntriesSince, supersedePending,
-  threadById, threadsSince, updateEntryNewWords, vocabularySize,
+  threadById, threadsSince, updateConversationSummary, updateEntryEnrichment, updateEntryNewWords, vocabularySize,
   type Entry, type Member, type Role, type Thread,
 } from "./db.js";
 import { hashPin, hasPin, pinMatches } from "./auth.js";
@@ -246,9 +246,9 @@ function bridgeTargets(author: Member, shareable: boolean, wordCount: number): M
   return [];
 }
 
-async function extract(author: Member, text: string, prompt: string | null, targets: Member[], careAbout: Member | null): Promise<Extraction> {
+async function extract(author: Member, text: string, prompt: string | null, targets: Member[], careAbout: Member | null, useAI: boolean): Promise<Extraction> {
   const family = allMembers().map((x) => `${x.name} (${x.role}${x.relation ? `, called "${x.relation}"` : ""}${x.age ? `, age ${x.age}` : ""})`).join("; ");
-  const ai = llmEnabled()
+  const ai = useAI && llmEnabled()
     ? await completeJson<Extraction>(
         `You are Hearth, a warm family-memory assistant inside Alexa+. Family: ${family}.
 Given one journal entry, return JSON with:
@@ -304,6 +304,52 @@ ${careAbout ? `- care: the child mentioned ${careAbout.name} may be tired or unw
   return out;
 }
 
+// ───────────── Background work ─────────────
+// Alexa+ expects an MCP reply in under 500 ms; a Bedrock call takes a couple of seconds. So the reply
+// uses Hearth's own in-code recast and summary straight away, and Bedrock's richer summary, story
+// bridges and care nudges are added in the background a moment later (the dashboard refreshes itself).
+const pending = new Set<Promise<unknown>>();
+function inBackground(task: () => Promise<unknown>) {
+  const p = task().catch((err) => console.error("[hearth] background task failed:", (err as Error).message)).finally(() => pending.delete(p));
+  pending.add(p);
+}
+/** Resolves when all background work has finished (used by scripts and tests). */
+export async function whenIdle(): Promise<void> {
+  while (pending.size) await Promise.all([...pending]);
+}
+
+async function createThreads(entry: Entry, author: Member, x: Extraction, at: string): Promise<{ created: number; held: number }> {
+  let created = 0;
+  let held = 0;
+  for (const b of x.bridges ?? []) {
+    const to = findMember(b.to);
+    if (!to || to.id === author.id) continue;
+    if (to.role === "child" && !(await okForChild(b.prompt))) { held++; continue; }
+    supersedePending(author.id, to.id, "story_bridge"); // one waiting story per pair; newer replaces older
+    insertThread({ kind: "story_bridge", source_entry_id: entry.id, from_member_id: author.id, to_member_id: to.id, prompt: b.prompt, created_at: at });
+    created++;
+  }
+  if (x.care) {
+    const about = findMember(x.care.about);
+    for (const adult of allMembers().filter((a) => a.role !== "child" && a.id !== about?.id && a.is_parent)) {
+      if (pendingThreadsFor(adult.id).some((t) => t.kind === "care_nudge")) continue;
+      insertThread({ kind: "care_nudge", source_entry_id: entry.id, from_member_id: author.id, to_member_id: adult.id, prompt: x.care.nudge, created_at: at });
+      created++;
+    }
+  }
+  return { created, held };
+}
+
+function enrichLater(entry: Entry, author: Member, text: string, prompt: string | null, targets: Member[], careAbout: Member | null, at: string) {
+  inBackground(async () => {
+    const x = await extract(author, text, prompt, targets, careAbout, true);
+    if (!entryById(entry.id)) return; // deleted meanwhile
+    updateEntryEnrichment(entry.id, x.summary, x.mood, JSON.stringify(x.topics), JSON.stringify(x.people));
+    await createThreads(entry, author, x, at);
+    scheduleRadio();
+  });
+}
+
 function childBigWords(m: Member, fresh: string[], prompt: string | null, text: string): string[] {
   return m.role === "child" ? bigWords(fresh, m.age, prompt, properNouns(text)) : [];
 }
@@ -337,10 +383,12 @@ export async function saveEntry(input: {
   const fresh = recordVocabulary(m.id, tokenize(text), at);
   const targets = bridgeTargets(m, !isPrivate && safety.kind === "none", metrics.word_count);
   const careAbout = !isPrivate && safety.kind === "none" && careNudgesOn() ? careTarget(m, text, family) : null;
-  // Sensitive entries never go to the AI model or anywhere else.
+  // Sensitive entries never go to the AI model or anywhere else. Everything else gets an instant
+  // in-code extraction now, and Bedrock's richer one in the background.
+  const background = !sensitive && llmEnabled();
   const x: Extraction = sensitive
     ? { summary: `${m.name}: private entry`, mood: null, topics: [], people: [] }
-    : await extract(m, text, input.prompt ?? null, targets, careAbout);
+    : await extract(m, text, input.prompt ?? null, targets, careAbout, false);
 
   const chapter = m.role === "elder"
     ? (MEMOIR_FLAT.find((q) => q.question === input.prompt)?.chapter ??
@@ -360,26 +408,18 @@ export async function saveEntry(input: {
 
   let threadsCreated = 0;
   let held = 0;
-  for (const b of x.bridges ?? []) {
-    const to = findMember(b.to);
-    if (!to || to.id === m.id) continue;
-    if (to.role === "child" && !(await okForChild(b.prompt))) { held++; continue; }
-    supersedePending(m.id, to.id, "story_bridge"); // one waiting story per pair; newer replaces older
-    insertThread({ kind: "story_bridge", source_entry_id: entry.id, from_member_id: m.id, to_member_id: to.id, prompt: b.prompt, created_at: at });
-    threadsCreated++;
+  if (background) {
+    enrichLater(entry, m, text, input.prompt ?? null, targets, careAbout, at);
+  } else if (!sensitive) {
+    ({ created: threadsCreated, held } = await createThreads(entry, m, x, at));
+    scheduleRadio();
   }
-  if (x.care) {
-    const about = findMember(x.care.about);
-    for (const adult of family.filter((a) => a.role !== "child" && a.id !== about?.id && a.is_parent)) {
-      if (pendingThreadsFor(adult.id).some((t) => t.kind === "care_nudge")) continue;
-      insertThread({ kind: "care_nudge", source_entry_id: entry.id, from_member_id: m.id, to_member_id: adult.id, prompt: x.care.nudge, created_at: at });
-      threadsCreated++;
-    }
-  }
+  const sharing = background && (targets.length > 0 || !!careAbout);
 
   const base = {
     saved: true, entry_id: entry.id, private: isPrivate, summary: x.summary, mood: x.mood,
     family_threads_created: threadsCreated,
+    ...(sharing ? { family_threads: "being written in the background" } : {}),
     ...(held ? { held_back_for_child: held } : {}),
     can_delete: `If ${m.name} changes their mind, call delete_journal_entry within ${QUICK_DELETE_MINUTES} minutes — no PIN needed.`,
   };
@@ -399,9 +439,10 @@ export async function saveEntry(input: {
       ...base,
       recast: x.recast,
       follow_up: x.follow_up,
+      recast_note: `Say the recast warmly in your own voice if it reads stiffly — keep ${m.name}'s words, add only a few, use words a ${m.age ?? 7}-year-old knows, never correct them.`,
       big_words_today: words,
       words_used: metrics.word_count,
-      say: `${x.recast} ${x.follow_up}${words.length ? ` (Celebrate: "${words[0]}" is a new big word for ${m.name}!)` : ""}`,
+      say: `${x.recast} ${words.length ? `"${words[0][0].toUpperCase()}${words[0].slice(1)}" is a great new word! ` : ""}${x.follow_up}`,
     };
   }
   if (m.role === "adult") {
@@ -411,7 +452,7 @@ export async function saveEntry(input: {
   return {
     ...base, chapter,
     memoir_progress: memoirProgress(m),
-    say: `Thank you, ${m.name}. That's now part of the "${chapter}" chapter of your story.${threadsCreated ? " I'll share a little of it with the grandchildren." : ""}`,
+    say: `Thank you, ${m.name}. That's now part of the "${chapter}" chapter of your story.${threadsCreated || sharing ? " I'll share a little of it with the grandchildren." : ""}`,
   };
 }
 
@@ -454,6 +495,8 @@ function rebuildVocabulary(m: Member) {
 function removeEntry(entry: Entry) {
   deleteEntryRow(entry.id);
   rebuildVocabulary(memberById(entry.member_id));
+  if (radioCache) radioCache = null; // never replay an episode that mentions a deleted entry
+  scheduleRadio();
 }
 
 /** Delete from the dashboard: the viewer is already PIN-verified by their session. */
@@ -555,7 +598,7 @@ export function languageProgress(child: Member, days = 28) {
     note: "Practice and engagement indicators, not a clinical assessment. Talk to a speech-language professional if you have concerns.",
     say:
       `${child.name} practised ${entries.length} times in the last ${days} days. ` +
-      (first && last && first !== last ? `Their answers have gone from about ${first.avg_words} words to about ${last.avg_words}. ` : "") +
+      (first && last && first !== last ? `Their answers have gone from about ${Math.round(first.avg_words)} words to about ${Math.round(last.avg_words)}. ` : "") +
       (recentBig.length ? `New big words lately: ${recentBig.slice(-4).join(", ")}.` : ""),
   };
 }
@@ -606,14 +649,54 @@ export function recall(question: string, askedBy: string, pin?: string | null, l
   };
 }
 
-export async function familyRadio(days = 7) {
+interface RadioEpisode {
+  generated_with: "bedrock" | "template";
+  period_days: number;
+  segments: { member: string; highlight: string; entries: number }[];
+  word_of_the_week: { name: string; words: string[] }[];
+  cast: { name: string; called: string | null; photo: string | null; role: Role }[];
+  script: string;
+}
+
+// Family Radio is written by Bedrock ahead of time (a few seconds after the family's journal changes),
+// so "Alexa, play Family Radio" answers instantly. Until the first episode is ready, the in-code
+// version plays.
+let radioCache: { version: number; days: number; episode: RadioEpisode } | null = null;
+let radioTimer: NodeJS.Timeout | null = null;
+function scheduleRadio(delayMs = 8000) {
+  if (!llmEnabled()) return;
+  if (radioTimer) clearTimeout(radioTimer);
+  radioTimer = setTimeout(() => {
+    radioTimer = null;
+    inBackground(async () => {
+      const version = dataVersion();
+      const episode = await buildRadio(7, true);
+      if (episode.generated_with === "bedrock") radioCache = { version, days: 7, episode };
+    });
+  }, delayMs);
+  radioTimer.unref?.();
+}
+
+export async function familyRadio(days = 7): Promise<RadioEpisode & { fresh?: boolean }> {
+  if (!llmEnabled()) return buildRadio(days, false);
+  if (radioCache && radioCache.days === days) {
+    const fresh = radioCache.version === dataVersion();
+    if (!fresh) scheduleRadio(0);
+    return { ...radioCache.episode, fresh };
+  }
+  scheduleRadio(0);
+  return buildRadio(days, false);
+}
+
+export async function buildRadio(days: number, useAI: boolean): Promise<RadioEpisode> {
   const since = new Date(Date.now() - days * DAY).toISOString();
   const entries = sharedEntriesSince(since).filter((e) => !e.conversation_id);
   const conversations = [...new Set(sharedEntriesSince(since).map((e) => e.conversation_id).filter((c): c is number => !!c))]
     .map((id) => conversationById(id)!).filter(Boolean);
   const members = allMembers();
   const byMember = members.map((m) => ({ m, es: entries.filter((e) => e.member_id === m.id) })).filter((x) => x.es.length);
-  if (!byMember.length) return { script: "It's been a quiet week at home — no stories yet. Tell me about your day and I'll have an episode ready next Sunday!", segments: [], period_days: days };
+  const cast = members.map((m) => ({ name: m.name, called: m.relation, photo: m.photo, role: m.role }));
+  if (!byMember.length) return { generated_with: "template", period_days: days, segments: [], word_of_the_week: [], cast, script: "It's been a quiet week at home — no stories yet. Tell me about your day and I'll have an episode ready next Sunday!" };
 
   const kidWords = members
     .filter((m) => m.role === "child")
@@ -625,7 +708,7 @@ export async function familyRadio(days = 7) {
   const material = byMember
     .map(({ m, es }) => `${m.name} (${m.relation ?? m.role}): ${es.map((e) => `[${fmtDate(e.created_at)}] ${e.summary}`).join(" ")}`)
     .join("\n");
-  const ai = llmEnabled()
+  const ai = useAI && llmEnabled()
     ? await completeJson<{ script: string }>(
         RADIO_SYSTEM,
         `This week's journal summaries:\n${material}\nFamily-table conversations: ${conversations.map((c) => c.summary).join(" ") || "none"}\nNew big words the kids used: ${kidWords.map((k) => `${k.name}: ${k.words.slice(0, 5).join(", ")}`).join("; ") || "none"}`,
@@ -648,7 +731,7 @@ export async function familyRadio(days = 7) {
       `That's this week's Family Radio. Ask each other one question about these stories at dinner tonight. Good night!`,
     ].join("\n\n");
 
-  return { generated_with: ai ? "bedrock" : "template", period_days: days, segments, word_of_the_week: kidWords, script };
+  return { generated_with: ai ? "bedrock" : "template", period_days: days, segments, word_of_the_week: kidWords, cast, script };
 }
 
 // ───────────────────────────── family conversations ─────────────────────────────
@@ -711,21 +794,24 @@ export async function saveConversation(input: {
   const nameList = names.length > 2 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names.join(" and ");
   const allText = turns.map((t) => t.text).join(" ");
 
-  const ai = llmEnabled()
-    ? await completeJson<{ summary: string }>(
-        CONVERSATION_SUMMARY_SYSTEM,
-        `${input.prompt ? `Opener: ${input.prompt}\n` : ""}${turns.map((t) => `${t.speaker.name}: ${t.text}`).join("\n")}`,
-        200,
-      )
-    : null;
   const familyWords = new Set(family.flatMap((f) => [f.name, f.relation ?? ""]).flatMap((n) => tokenize(n)));
   const topic = topKeywords(`${input.prompt ?? ""} ${allText}`, 8).filter((w) => !familyWords.has(w) && w.length >= 5 && !/ly$/.test(w)).slice(0, 2).join(" and ") || "their week";
   const convo = insertConversation({
     created_at: new Date(start).toISOString(),
     prompt: input.prompt ?? null,
     participants: JSON.stringify(people.map((p) => p.id)),
-    summary: ai?.summary || `${nameList} talked about ${topic}.`,
+    summary: `${nameList} talked about ${topic}.`,
   });
+  // Bedrock writes a warmer one-line summary in the background.
+  if (llmEnabled()) {
+    // Possible safety disclosures never leave Hearth, so those turns are left out of what Bedrock sees.
+    const shareable = turns.filter((t) => !["household_harm", "self_harm"].includes(checkSafety(t.text, family).kind));
+    const transcript = `${input.prompt ? `Opener: ${input.prompt}\n` : ""}${shareable.map((t) => `${t.speaker.name}: ${t.text}`).join("\n")}`;
+    inBackground(async () => {
+      const ai = await completeJson<{ summary: string }>(CONVERSATION_SUMMARY_SYSTEM, transcript, 200);
+      if (ai?.summary && conversationById(convo.id)) updateConversationSummary(convo.id, ai.summary);
+    });
+  }
 
   const big: Record<string, string[]> = {};
   let sensitiveTurns = 0;
@@ -752,6 +838,7 @@ export async function saveConversation(input: {
     const th = threadById(input.thread_id);
     if (th && people.some((p) => p.id === th.to_member_id)) markThreadUsed(th.id);
   }
+  scheduleRadio();
   const praise = Object.entries(big).map(([n, w]) => `${n} used ${w.length === 1 ? "a new big word" : `${w.length} new big words`}: ${w.slice(0, 3).join(", ")}.`).join(" ");
   return {
     saved: true, conversation_id: convo.id, turns: turns.length, participants: names, summary: convo.summary,
@@ -870,7 +957,7 @@ export function memberJournal(viewer: Viewer, name: string, before?: number) {
     return {
       ...base,
       stats: [
-        { value: p.words_per_answer_first_week && p.words_per_answer_latest_week ? `${p.words_per_answer_first_week} → ${p.words_per_answer_latest_week}` : String(p.words_per_answer_latest_week), label: "words per answer, first week to now" },
+        { value: p.words_per_answer_first_week && p.words_per_answer_latest_week ? `${Math.round(p.words_per_answer_first_week)} → ${Math.round(p.words_per_answer_latest_week)}` : String(Math.round(p.words_per_answer_latest_week)), label: "words per answer, first week to now" },
         { value: String(p.big_words_total), label: "new big words so far" },
         { value: `${p.streak_days} ${p.streak_days === 1 ? "day" : "days"}`, label: "practice streak" },
       ],

@@ -231,6 +231,16 @@ export function insertEntry(e: Omit<Entry, "id">): Entry {
   return entryById(Number(r.lastInsertRowid))!;
 }
 
+export function updateEntryEnrichment(id: number, summary: string, mood: string | null, topics: string, people: string): void {
+  db.prepare("UPDATE entries SET summary = ?, mood = ?, topics = ?, people = ? WHERE id = ?").run(summary, mood, topics, people, id);
+  bumpVersion();
+}
+
+export function updateConversationSummary(id: number, summary: string): void {
+  db.prepare("UPDATE conversations SET summary = ? WHERE id = ?").run(summary, id);
+  bumpVersion();
+}
+
 export function updateEntryNewWords(id: number, newWords: string[]): void {
   db.prepare("UPDATE entries SET new_words = ? WHERE id = ?").run(JSON.stringify(newWords), id);
 }

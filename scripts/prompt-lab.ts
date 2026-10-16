@@ -16,19 +16,20 @@ for (const k of ["BEDROCK_MODEL_ID", "BEDROCK_GUARDRAIL_ID"]) delete offline[k];
 execSync("node --no-warnings --import tsx scripts/seed.ts", { env: offline, stdio: "ignore" });
 process.env.HEARTH_DB = LAB_DB;
 
-const { saveEntry, saveConversation, familyRadio } = await import("../src/memory.js");
+const { saveEntry, saveConversation, buildRadio, whenIdle } = await import("../src/memory.js");
 const { db } = await import("../src/db.js");
 const { llmLabel } = await import("../src/llm.js");
 
 const bridgesFrom = (entryId: number) =>
   (db.prepare("SELECT prompt FROM threads WHERE source_entry_id = ? AND kind = 'story_bridge'").all(entryId) as { prompt: string }[]).map((r) => r.prompt);
-const isTemplate = (s?: string) => !!s && (/^Wow, so /.test(s) || /^Ooh — /.test(s));
+const summaryOf = (table: "entries" | "conversations", id: number) =>
+  (db.prepare(`SELECT summary FROM ${table} WHERE id = ?`).get(id) as { summary: string } | undefined)?.summary;
 const line = () => console.log("─".repeat(72));
 
 console.log(`\nHearth prompt lab · ${llmLabel()}\n`);
 
 line();
-console.log("1. Leo's speaking practice (recast + follow-up)\n");
+console.log("1. Leo's speaking practice: what Alexa says straight away (in code, <50 ms)\n");
 const kid = [
   "We went to the park. I went on the big slide.",
   "I drawed a dinosaur. It was green.",
@@ -39,13 +40,16 @@ let lastKidEntry = 0;
 for (const text of kid) {
   const r = (await saveEntry({ name: "Leo", transcript: text })) as { recast?: string; follow_up?: string; big_words_today?: string[]; entry_id: number };
   console.log(`  Leo:   ${text}`);
-  console.log(`  Alexa: ${r.recast} ${r.follow_up}${isTemplate(r.recast) ? "   [template fallback]" : ""}`);
+  console.log(`  Alexa: ${r.recast} ${r.follow_up}`);
   if (r.big_words_today?.length) console.log(`  (big words: ${r.big_words_today.join(", ")})`);
   console.log();
   lastKidEntry = r.entry_id;
 }
+await whenIdle(); // story bridges are written by Bedrock in the background
 const toGran = bridgesFrom(lastKidEntry);
-if (toGran.length) console.log(`  …and later, to Gran: ${toGran[0]}\n`);
+console.log(`  Bedrock summary: ${summaryOf("entries", lastKidEntry)}`);
+if (toGran.length) console.log(`  Bedrock story bridge, to Gran: ${toGran[0]}`);
+console.log();
 
 line();
 console.log("2. Gran's memoir → a question for Leo\n");
@@ -53,8 +57,9 @@ const gran = await saveEntry({
   name: "Gran",
   prompt: "What do you remember about the day your first child was born?",
   transcript: "It was the coldest night of the year, and the snow was so deep the midwife had to come on a tractor. When I first held Marcus he had a full head of black hair and the loudest cry in the whole street.",
-}) as { entry_id: number; summary: string };
-console.log(`  Summary: ${gran.summary}`);
+}) as { entry_id: number };
+await whenIdle();
+console.log(`  Bedrock summary: ${summaryOf("entries", gran.entry_id)}`);
 console.log(`  To Leo:  ${bridgesFrom(gran.entry_id)[0] ?? "(no bridge — check held_back_for_child)"}\n`);
 
 line();
@@ -66,13 +71,14 @@ const convo = await saveConversation({
     { speaker: "Gran", text: "When I was a girl we went to Scarborough every summer and ate chips on the sea wall." },
     { speaker: "Amara", text: "Then it's settled. Scarborough, chips, and the biggest sandcastle ever." },
   ],
-}) as { summary: string; say: string };
-console.log(`  Summary: ${convo.summary}`);
+}) as { conversation_id: number; say: string };
+await whenIdle();
+console.log(`  Bedrock summary: ${summaryOf("conversations", convo.conversation_id)}`);
 console.log(`  Alexa:   ${convo.say}\n`);
 
 line();
 console.log("4. Family Radio\n");
-const radio = await familyRadio(7) as { script: string; generated_with?: string };
+const radio = await buildRadio(7, true) as { script: string; generated_with?: string };
 console.log(radio.script.split("\n").map((l) => `  ${l}`).join("\n"));
 console.log(`\n  [${radio.generated_with ?? "?"}]`);
 line();
