@@ -289,9 +289,26 @@ function auth(req: Request, res: Response, next: NextFunction) {
   res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null });
 }
 
+/**
+ * Streamable HTTP spec (2025-11-25): servers MUST validate the Origin header and answer 403 to an
+ * invalid one (DNS-rebinding protection). Alexa+ calls server-to-server and sends no Origin, so
+ * requests without one pass; browsers may only come from this server's own address or an origin
+ * listed in HEARTH_ALLOWED_ORIGINS (comma-separated).
+ */
+const EXTRA_ORIGINS = (process.env.HEARTH_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean);
+function checkOrigin(req: Request, res: Response, next: NextFunction) {
+  const origin = req.header("origin");
+  if (!origin) return next();
+  const host = req.header("x-forwarded-host") ?? req.header("host");
+  let ok = EXTRA_ORIGINS.includes(origin);
+  try { ok ||= new URL(origin).host === host; } catch { ok = false; }
+  if (ok) return next();
+  res.status(403).json({ jsonrpc: "2.0", error: { code: -32000, message: "Forbidden: origin not allowed" } });
+}
+
 // Stateless Streamable HTTP: every POST gets its own server + transport. (The SQLite store still means
 // one instance with a persistent disk — see the README's deploy section.)
-app.post("/mcp", auth, async (req, res) => {
+app.post("/mcp", checkOrigin, auth, async (req, res) => {
   const server = buildServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => {
@@ -307,8 +324,8 @@ app.post("/mcp", auth, async (req, res) => {
   }
 });
 // Stateless mode has no server-initiated stream or session to delete.
-app.get("/mcp", (_req, res) => res.status(405).set("Allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }));
-app.delete("/mcp", (_req, res) => res.status(405).set("Allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }));
+app.get("/mcp", checkOrigin, (_req, res) => res.status(405).set("Allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }));
+app.delete("/mcp", checkOrigin, (_req, res) => res.status(405).set("Allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, protocol: LATEST_PROTOCOL_VERSION, reasoning: llmLabel(), child_content_check: guardrailLabel() }));
 

@@ -308,6 +308,18 @@ await step("Family Radio covers everyone and leaves out private and sensitive en
   console.log("     script:\n" + json.script.split("\n").filter(Boolean).map((l: string) => "       " + l).join("\n"));
 });
 
+await step("Streamable HTTP spec: untrusted Origin → 403, bad protocol version → 400, GET/DELETE → 405", async () => {
+  const init = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  const h = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+  assert.equal((await fetch(`${base}/mcp`, { method: "POST", headers: { ...h, origin: "https://evil.example" }, body: init })).status, 403);
+  assert.equal((await fetch(`${base}/mcp`, { method: "POST", headers: { ...h, origin: base }, body: init })).status, 200, "same origin is fine");
+  assert.equal((await fetch(`${base}/mcp`, { method: "POST", headers: h, body: init })).status, 200, "no Origin (Alexa+, server-to-server) is fine");
+  const listTools = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+  assert.equal((await fetch(`${base}/mcp`, { method: "POST", headers: { ...h, "mcp-protocol-version": "1999-01-01" }, body: listTools })).status, 400);
+  assert.equal((await fetch(`${base}/mcp`, { headers: { accept: "text/event-stream" } })).status, 405);
+  assert.equal((await fetch(`${base}/mcp`, { method: "DELETE" })).status, 405);
+});
+
 await step("unknown member gets a friendly error", async () => {
   const r = await call("start_journal_session", { member_name: "Zorro" });
   assert.ok(r.isError && /Members:/.test(r.text));
