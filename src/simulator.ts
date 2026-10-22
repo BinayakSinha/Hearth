@@ -175,6 +175,8 @@ async function bedrockTurn(s: Session, speaker: string, text: string, fwd: Forwa
     }
     s.messages = history;
     trim(s.messages);
+    // Nova sometimes wraps its reasoning in <thinking> tags; never speak it.
+    reply = reply.replace(/<thinking>[\s\S]*?(<\/thinking>|$)/gi, "").trim();
     return { reply: reply || lastSay || "Done.", agent: "bedrock", steps: turn.steps, ui: turn.ui };
   }, fwd);
 }
