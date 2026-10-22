@@ -12,6 +12,7 @@ const ENDPOINT = process.env.BEDROCK_ENDPOINT;
 const client = MODEL_ID
   ? new BedrockRuntimeClient({
       region: process.env.AWS_REGION ?? "us-east-1",
+      maxAttempts: 5, retryMode: "adaptive", // new accounts have low Bedrock quotas; back off instead of failing
       ...(ENDPOINT ? { endpoint: ENDPOINT, requestHandler: new NodeHttpHandler() } : {}),
     })
   : null;

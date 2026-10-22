@@ -100,6 +100,26 @@ await step("simulator agent: Bedrock picks a Hearth tool and calls it over MCP (
   console.log(`     Alexa: ${j.reply.slice(0, 80)}`);
 });
 
+await step("simulator agent: never saves words the child didn't say; asks the question and waits", async () => {
+  const r = await fetch(`${base}/api/sim/turn`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session: "t2", speaker: "Leo", text: "Alexa, open my journal" }),
+  });
+  const j = await r.json() as { reply: string; steps: { tool: string }[] };
+  assert.ok(!j.steps.some((s) => s.tool === "save_journal_entry"), "the invented answer was not saved");
+  assert.ok(j.steps.some((s) => s.tool === "get_journal_prompt"));
+  assert.match(j.reply, /\?/, "Alexa asks the journal question");
+  assert.notEqual(j.reply, "Done.");
+  console.log(`     Alexa: ${j.reply.slice(0, 90)}`);
+  const ans = await (await fetch(`${base}/api/sim/turn`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session: "t2", speaker: "Leo", text: "I rode my bike to the shop with Dad" }),
+  })).json() as { reply: string; steps: { tool: string; args: { transcript?: string } }[] };
+  const save = ans.steps.find((s) => s.tool === "save_journal_entry");
+  assert.equal(save?.args.transcript, "I rode my bike to the shop with Dad", "Leo's answer is saved word for word");
+  console.log(`     Alexa: ${ans.reply.slice(0, 90)}`);
+});
+
 listener.close();
 await mock.close();
 db.close();

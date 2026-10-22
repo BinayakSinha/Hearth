@@ -29,6 +29,12 @@ function agentTurn(messages: Msg[], toolNames: string[]) {
   const speaker = /speaker: (\w+)/i.exec(said)?.[1] ?? "Amara";
   const pick = (name: string, input: unknown) =>
     toolNames.includes(name) ? reply([{ text: "One moment." }, { toolUse: { toolUseId: `t${Date.now()}`, name, input } }], "tool_use") : reply([{ text: "I can't do that." }], "end_turn");
+  // Reproduces a real Nova Lite slip: opening the journal AND inventing the child's answer in one go.
+  if (said.includes("open my journal")) return reply([
+    { toolUse: { toolUseId: "j1", name: "start_journal_session", input: { member_name: speaker } } },
+    { toolUse: { toolUseId: "j2", name: "get_journal_prompt", input: { member_name: speaker } } },
+    { toolUse: { toolUseId: "j3", name: "save_journal_entry", input: { member_name: speaker, transcript: "I felt happy and proud." } } },
+  ], "tool_use");
   if (said.includes("radio")) return pick("play_family_radio", {});
   if (said.includes("show") && said.includes("family")) return pick("show_family", { requested_by: speaker });
   if (said.includes("doing")) return pick("get_kid_speaking_progress", { child_name: "Leo", requested_by: speaker, pin: "1234" });

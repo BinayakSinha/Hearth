@@ -30,7 +30,6 @@ Hearth turns Alexa+ into the family's shared memory: one place where every gener
 
 **Care nudges (opt-in).** If a child mentions a grown-up seems tired or unwell, another grown-up gets a gentle nudge to check in. It never says who mentioned it.
 
-> Demo photos are stock placeholders — replace them with licensed or your own photos before publishing.
 
 ## Privacy and safety
 

@@ -61,6 +61,8 @@ async function withMcp<T>(fn: (c: Client) => Promise<T>, fwd: Forward = {}): Pro
   try { return await fn(client); } finally { await client.close(); }
 }
 
+/** Compares utterances loosely (case, spacing, punctuation, a leading "Alexa,"). */
+const norm = (t: string) => t.toLowerCase().replace(/^\s*\[speaker:[^\]]*\]\s*/, "").replace(/^alexa,?\s*/, "").replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
 const textOf = (r: CallResult) => (r.content ?? []).map((c) => c.text ?? "").join("");
 const jsonOf = (r: CallResult): Record<string, unknown> | null => { try { return JSON.parse(textOf(r)); } catch { return null; } };
 const maskPin = (a: Record<string, unknown>) => ("pin" in a && a.pin ? { ...a, pin: "••••" } : a);
@@ -110,8 +112,27 @@ async function bedrockTurn(s: Session, speaker: string, text: string, fwd: Forwa
     const { tools } = (await client.listTools()) as { tools: McpTool[] };
     const turn = new Turn(client, tools);
     const history = [...s.messages, { role: "user", content: [{ text: `[speaker: ${speaker}] ${text}` }] } as Message];
+    const st = s.script;
+    // An answer to the journal question Alexa just asked is always saved word for word, without asking the
+    // model, so a child's real words can never be paraphrased, skipped or invented.
+    if (st.mode === "answer" && st.member && findMember(speaker)?.name === st.member && !/^(alexa,? )?(stop|cancel|never ?mind)\b/i.test(text)) {
+      const r = await turn.call("save_journal_entry", { member_name: st.member, transcript: text, prompt: st.prompt, ...(st.threadId ? { thread_id: st.threadId } : {}) });
+      const j = jsonOf(r);
+      const reply = r.isError ? textOf(r) : String(j?.say ?? "Saved.");
+      if (!r.isError && findMember(st.member)?.role === "child" && j?.follow_up && !j.safety && (st.followUps ?? 0) < 1) {
+        Object.assign(st, { prompt: String(j.follow_up), threadId: null, followUps: (st.followUps ?? 0) + 1 });
+      } else st.mode = "idle";
+      s.messages = [...history, { role: "assistant", content: [{ text: reply }] }];
+      trim(s.messages);
+      return { reply, agent: "bedrock", steps: turn.steps, ui: turn.ui };
+    }
+    st.mode = "idle";
     let reply = "";
-    for (let i = 0; i < 6; i++) {
+    let greeting = "";
+    let lastSay = "";
+    let finished = false;
+    const said = norm(text);
+    for (let i = 0; i < 6 && !finished; i++) {
       const out = await converse({
         system: [{ text: SYSTEM }],
         messages: history,
@@ -127,14 +148,34 @@ async function bedrockTurn(s: Session, speaker: string, text: string, fwd: Forwa
       }
       const results: ContentBlock[] = [];
       for (const u of uses) {
-        const r = await turn.call(u.toolUse.name!, (u.toolUse.input ?? {}) as Record<string, unknown>);
+        const name = u.toolUse.name!;
+        const args = (u.toolUse.input ?? {}) as Record<string, unknown>;
+        // Guard: a journal entry must be the words the speaker said in THIS message. Small models sometimes
+        // invent an answer right after asking the question; refuse that instead of saving made-up words.
+        if (name === "save_journal_entry" && norm(String(args.transcript ?? "")) !== said) {
+          results.push({ toolResult: { toolUseId: u.toolUse.toolUseId!, status: "error", content: [{ text:
+            "Not saved: transcript must be exactly the speaker's words from this message. If you just asked a question, stop and wait for their answer." }] } });
+          continue;
+        }
+        const r = await turn.call(name, args);
         results.push({ toolResult: { toolUseId: u.toolUse.toolUseId!, content: [{ text: textOf(r) || "{}" }], status: r.isError ? "error" : "success" } });
+        const j = r.isError ? null : jsonOf(r);
+        if (j?.greeting) greeting = String(j.greeting);
+        if (j?.say) lastSay = String(j.say);
+        // Per the skill, these end the turn: ask the question / speak "say", then wait for the person.
+        if (!r.isError && name === "get_journal_prompt" && j?.prompt) {
+          reply = `${greeting} ${j.prompt}`.trim();
+          finished = true;
+          Object.assign(st, { mode: "answer", member: findMember(String(args.member_name ?? speaker))?.name ?? speaker, prompt: String(j.prompt), threadId: (j.thread_id as number | null) ?? null, followUps: 0 });
+        }
+        if (!r.isError && (name === "save_journal_entry" || name === "save_family_conversation") && j?.say) { reply = String(j.say); finished = true; }
       }
       history.push({ role: "user", content: results });
+      if (finished) history.push({ role: "assistant", content: [{ text: reply }] });
     }
     s.messages = history;
     trim(s.messages);
-    return { reply: reply || "Done.", agent: "bedrock", steps: turn.steps, ui: turn.ui };
+    return { reply: reply || lastSay || "Done.", agent: "bedrock", steps: turn.steps, ui: turn.ui };
   }, fwd);
 }
 

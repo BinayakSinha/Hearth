@@ -67,4 +67,4 @@ Say on screen once that the three weeks of history are sample data, and that the
 - [ ] Simulator source in the repo (`src/simulator.ts`, `public/sim/`, `ui/`) and the Agent Skill (`skills/hearth/SKILL.md`)
 - [ ] Bedrock and Guardrails mentioned and shown, for the AWS Builder Mini Challenge
 - [ ] Testing instructions for judges (`npm install && npm run seed && npm start`, open `/sim/`, demo PIN `1234`, plus the public URL)
-- [ ] Watermarked stock photos replaced
+- [x] Watermarked stock photos replaced
